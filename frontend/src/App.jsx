@@ -1,5 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 
+// Use environment variable for API URL in production, fallback to /api for dev proxy
+const API_BASE = import.meta.env.VITE_API_URL
+    ? `https://${import.meta.env.VITE_API_URL}`
+    : '/api'
+
 function App() {
     // State management
     const [file, setFile] = useState(null)
@@ -74,7 +79,7 @@ function App() {
             await new Promise(r => setTimeout(r, 600))
             setPipelineStage('indexing')
 
-            const response = await fetch('/api/upload', {
+            const response = await fetch(`${API_BASE}/upload`, {
                 method: 'POST',
                 body: formData,
             })
@@ -130,7 +135,7 @@ function App() {
             await new Promise(r => setTimeout(r, 600))
             setPipelineStage('generating')
 
-            const response = await fetch('/api/ask', {
+            const response = await fetch(`${API_BASE}/ask`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -194,7 +199,7 @@ function App() {
             await new Promise(r => setTimeout(r, 700))
             setPipelineStage('validating')
 
-            const response = await fetch('/api/extract', {
+            const response = await fetch(`${API_BASE}/extract`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ document_id: documentId })
