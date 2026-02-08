@@ -1,0 +1,99 @@
+BILL OF LADING
+
+BOL Number: BOL-2024-55891
+Date Prepared: February 8, 2024
+Shipment ID: SHP-445566-TX
+
+================================================================================
+SHIPPER
+================================================================================
+Name: Global Electronics Inc.
+Address: 8900 Tech Park Drive
+         San Jose, CA 95110
+Phone: (408) 555-9000
+       
+Ship From Same As Above: [X] Yes [ ] No
+
+================================================================================
+CONSIGNEE
+================================================================================
+Name: Regional Electronics Warehouse
+Address: 2200 Distribution Lane
+         Phoenix, AZ 85034
+Phone: (602) 555-4500
+
+Deliver To Same As Above: [X] Yes [ ] No
+
+================================================================================
+CARRIER
+================================================================================
+Carrier Name: Pacific Freight Lines
+SCAC Code: PFLN
+Pro Number: PRO-889900
+Trailer Number: TRL-5567
+
+================================================================================
+FREIGHT INFORMATION
+================================================================================
+| Qty  | Type    | Description                      | Weight (lbs) | Class |
+|------|---------|----------------------------------|--------------|-------|
+| 12   | Pallets | Consumer Electronics - TVs       | 18,000       | 85    |
+| 8    | Pallets | Computer Equipment - Laptops     | 6,400        | 92.5  |
+| 4    | Crates  | Server Equipment                 | 3,200        | 100   |
+|------|---------|----------------------------------|--------------|-------|
+| Total| 24 Units|                                  | 27,600 lbs   |       |
+
+================================================================================
+HANDLING INSTRUCTIONS
+================================================================================
+[X] Fragile - Handle with care
+[X] This end up
+[ ] Keep dry
+[X] Do not stack
+[ ] Temperature controlled
+
+Special Handling Notes:
+- High-value electronics - do not leave unattended
+- Inside delivery required
+- Tailgate delivery needed at destination
+- Signature required upon delivery
+
+================================================================================
+PAYMENT TERMS
+================================================================================
+Freight Charges: PREPAID
+Total Charges: $1,875.00 USD
+
+Collect on Delivery: [ ] Yes [X] No
+Third Party Billing: [ ] Yes [X] No
+
+================================================================================
+PICKUP/DELIVERY SCHEDULE
+================================================================================
+Pickup Date: February 9, 2024
+Pickup Time: 10:00 AM - 02:00 PM
+
+Delivery Date: February 11, 2024
+Delivery Time: 08:00 AM - 12:00 PM
+
+================================================================================
+SHIPPER CERTIFICATION
+================================================================================
+This is to certify that the above named materials are properly classified,
+described, packaged, marked, and labeled, and are in proper condition for
+transportation according to applicable regulations.
+
+Shipper Signature: _______________________
+Printed Name: ___________________________
+Date: __________________________________
+
+================================================================================
+CARRIER ACKNOWLEDGMENT
+================================================================================
+Received subject to individually determined rates or contracts that have been
+agreed upon in writing between the carrier and shipper.
+
+Carrier Signature: _______________________
+Driver Name: ___________________________
+Date: __________________________________
+Pieces Received: ________________________

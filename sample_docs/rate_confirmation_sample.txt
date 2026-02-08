@@ -1,0 +1,78 @@
+RATE CONFIRMATION
+
+Load/Shipment Number: RC-2024-78432
+Date: February 8, 2024
+
+================================================================================
+CARRIER INFORMATION
+================================================================================
+Carrier Name: Swift Transport Solutions LLC
+MC Number: MC-987654
+DOT Number: 3456789
+Contact: John Smith
+Phone: (555) 123-4567
+Email: dispatch@swifttransport.com
+
+================================================================================
+SHIPPER (ORIGIN)
+================================================================================
+Company: ABC Manufacturing Corp
+Address: 1250 Industrial Blvd, Suite 100
+City: Chicago, IL 60615
+Contact: Sarah Johnson
+Phone: (312) 555-7890
+Required Pickup Date: February 10, 2024
+Pickup Time: 08:00 AM - 12:00 PM
+Reference Number: PO-445566
+
+================================================================================
+CONSIGNEE (DESTINATION)
+================================================================================
+Company: XYZ Distribution Center
+Address: 5500 Commerce Way
+City: Dallas, TX 75201
+Contact: Mike Williams
+Phone: (214) 555-3210
+Required Delivery Date: February 12, 2024
+Delivery Time: 06:00 AM - 02:00 PM
+Reference Number: WH-998877
+
+================================================================================
+SHIPMENT DETAILS
+================================================================================
+Description: Automotive Parts - Engine Components
+Commodity: Auto Parts
+Weight: 42,500 lbs
+Pieces: 24 pallets
+Dimensions: 48x40x48 inches per pallet
+
+Equipment Type: 53' Dry Van
+Mode: Truckload (TL)
+Temperature Requirements: N/A
+
+================================================================================
+RATE & PAYMENT TERMS
+================================================================================
+Line Haul Rate: $2,850.00
+Fuel Surcharge: $285.00
+Total Rate: $3,135.00 USD
+
+Payment Terms: Net 30 days
+Quick Pay Option: 2% discount for payment within 5 days
+
+================================================================================
+SPECIAL INSTRUCTIONS
+================================================================================
+- Driver must check in at gate with valid ID
+- Lumper fees will be prepaid by shipper
+- No driver assist required
+- Sealed load - do not break seal
+- Call consignee 2 hours before arrival
+
+================================================================================
+AGREEMENT
+================================================================================
+By accepting this load, carrier agrees to all terms and conditions outlined
+in the Master Carrier Agreement dated January 1, 2024.
+
+Confirmed by: _____________________  Date: _______________
