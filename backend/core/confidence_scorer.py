@@ -103,9 +103,13 @@ class ConfidenceScorer:
         if len(chunks) < 2:
             return 1.0  # Single chunk always agrees with itself
         
-        # Get embeddings for all chunk texts
+        # Get embeddings using semantic similarity task type for direct comparison
         texts = [chunk.get("text", "") for chunk in chunks[:5]]
-        embeddings = self.embedding_model.encode(texts, convert_to_numpy=True)
+        embeddings = self.embedding_model.encode(
+            texts, 
+            convert_to_numpy=True,
+            task_type="semantic_similarity"
+        )
         
         # Compute pairwise similarities
         similarities = []
@@ -163,7 +167,12 @@ class ConfidenceScorer:
         if not query or not answer:
             return 0.0
         
-        embeddings = self.embedding_model.encode([query, answer], convert_to_numpy=True)
+        # Use semantic similarity task type for Q&A comparison
+        embeddings = self.embedding_model.encode(
+            [query, answer], 
+            convert_to_numpy=True,
+            task_type="semantic_similarity"
+        )
         
         similarity = np.dot(embeddings[0], embeddings[1]) / (
             np.linalg.norm(embeddings[0]) * np.linalg.norm(embeddings[1])

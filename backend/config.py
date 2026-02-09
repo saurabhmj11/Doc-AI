@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     similarity_threshold: float = 0.15  # Lowered for better retrieval
     
     # Confidence thresholds
-    high_confidence_threshold: float = 0.8
-    low_confidence_threshold: float = 0.5
+    high_confidence_threshold: float = 0.75
+    low_confidence_threshold: float = 0.35
     grounding_coverage_threshold: float = 0.6
     
     # Embedding model

@@ -27,7 +27,7 @@ def get_embedding_model():
                 genai.configure(api_key=api_key)
                 self.model_name = "models/embedding-001"
                 
-            def encode(self, texts, convert_to_numpy=True):
+            def encode(self, texts, convert_to_numpy=True, task_type="retrieval_document"):
                 # Batch embed using Gemini API
                 is_single = isinstance(texts, str)
                 if is_single:
@@ -42,7 +42,7 @@ def get_embedding_model():
                         result = genai.embed_content(
                             model=self.model_name,
                             content=batch,
-                            task_type="retrieval_document"
+                            task_type=task_type
                         )
                         # Result is a dict with 'embedding' key which is a list
                         batch_embeddings = result['embedding']

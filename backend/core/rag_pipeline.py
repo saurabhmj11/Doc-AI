@@ -70,8 +70,12 @@ For numbers, dates, and names - use exactly what's in the document."""
         if isinstance(document_ids, str):
             document_ids = [document_ids]
             
-        # embed the question
-        query_embedding = self.embedding_model.encode(question, convert_to_numpy=True)
+        # embed the question for higher relevance using correct task type
+        query_embedding = self.embedding_model.encode(
+            question, 
+            convert_to_numpy=True,
+            task_type="retrieval_query"
+        )
         
         # find similar chunks across all documents (parallel search)
         chunks = self.vector_store.search_parallel(
