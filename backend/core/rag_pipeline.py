@@ -146,25 +146,36 @@ For numbers, dates, and names - use exactly what's in the document."""
         return "\n\n".join(parts)
     
     def _generate_answer(self, question: str, context: str) -> str:
-        """Call the LLM with our context. Falls back to extractive if LLM fails."""
+        """Call the LLM with our context. Returns specific error if fails."""
         if not self.llm:
-            return self._extractive_fallback(question, context)
+            return "Error: Gemini API key not configured. Check backend logs."
         
-        prompt = f"""{self.SYSTEM_PROMPT}
+        # Improved Prompt
+        prompt = f"""You are an AI logistics assistant analyzing documents.
+Strictly answer based ONLY on the provided Context below.
+If the answer is not in the context, say "I cannot find the answer in the document."
+Do NOT repeat the entire document. Be concise.
 
-DOCUMENT CONTEXT:
+Context:
 {context}
 
-QUESTION: {question}
+User Question: {question}
 
-ANSWER:"""
+Answer:"""
         
         try:
-            response = self.llm.generate_content(prompt)
+            # Use generation config
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(prompt)
+            
+            if not response.text:
+                return "The answer was blocked or safety filtered."
+                
             return response.text.strip()
+            
         except Exception as e:
-            # LLM failed, just grab the most relevant text
-            return self._extractive_fallback(question, context)
+            # Return the actual error to debug!
+            return f"Error from Gemini API: {str(e)}"
     
     def _extractive_fallback(self, question: str, context: str) -> str:
         """Backup plan - just return the top chunk text"""
