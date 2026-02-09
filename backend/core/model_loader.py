@@ -25,7 +25,7 @@ def get_embedding_model():
         class GeminiEmbeddingModel:
             def __init__(self, api_key):
                 genai.configure(api_key=api_key)
-                self.model_name = "models/embedding-001"
+                self.model_name = "models/text-embedding-004"
                 
             def encode(self, texts, convert_to_numpy=True, task_type="retrieval_document"):
                 # Batch embed using Gemini API
