@@ -22,8 +22,6 @@ services:
   - type: web
     name: doc-ai-frontend
     runtime: static
-    region: oregon
-    plan: free
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     rootDir: frontend
