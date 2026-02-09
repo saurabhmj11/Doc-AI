@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 
 // Use environment variable for API URL in production, fallback to /api for dev proxy
+// Hardcode production URL as backup since Render's fromService may not work correctly
 const API_BASE = import.meta.env.VITE_API_URL
     ? `https://${import.meta.env.VITE_API_URL}/api`
-    : '/api'
+    : (import.meta.env.PROD
+        ? 'https://doc-ai-backend-bpez.onrender.com/api'
+        : '/api')
 
 function App() {
     // State management
