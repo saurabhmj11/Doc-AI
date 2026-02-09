@@ -39,9 +39,17 @@ class DocumentProcessor:
     """
     
     def __init__(self):
-        self.embedding_model = get_embedding_model()
+        # Lazy load embedding model - don't block server startup
+        self._embedding_model = None
         self.chunk_size = settings.chunk_size
         self.chunk_overlap = settings.chunk_overlap
+    
+    @property
+    def embedding_model(self):
+        """Lazy-load embedding model on first use."""
+        if self._embedding_model is None:
+            self._embedding_model = get_embedding_model()
+        return self._embedding_model
     
     def process_file(self, file_path: str, file_type: str) -> tuple[str, list[DocumentChunk]]:
         """
