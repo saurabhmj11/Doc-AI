@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 
 // Use environment variable for API URL in production, fallback to /api for dev proxy
 const API_BASE = import.meta.env.VITE_API_URL
-    ? `https://${import.meta.env.VITE_API_URL}`
+    ? `https://${import.meta.env.VITE_API_URL}/api`
     : '/api'
 
 function App() {
