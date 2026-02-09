@@ -20,10 +20,6 @@ from api.schemas import (
     ExtractResponse,
     ErrorResponse
 )
-from core.document_processor import DocumentProcessor
-from core.vector_store import get_vector_store
-from core.rag_pipeline import get_rag_pipeline
-from core.structured_extractor import get_structured_extractor
 
 settings = get_settings()
 router = APIRouter()
@@ -32,8 +28,47 @@ router = APIRouter()
 UPLOAD_DIR = Path("./uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# Document processor instance
-document_processor = DocumentProcessor()
+# Lazy-loaded singletons to prevent blocking server startup
+_document_processor = None
+_vector_store = None
+_rag_pipeline = None
+_structured_extractor = None
+
+
+def get_document_processor():
+    """Lazy-load DocumentProcessor to avoid import-time heavy loading."""
+    global _document_processor
+    if _document_processor is None:
+        from core.document_processor import DocumentProcessor
+        _document_processor = DocumentProcessor()
+    return _document_processor
+
+
+def get_vector_store():
+    """Lazy-load VectorStore."""
+    global _vector_store
+    if _vector_store is None:
+        from core.vector_store import get_vector_store as _get_vs
+        _vector_store = _get_vs()
+    return _vector_store
+
+
+def get_rag_pipeline():
+    """Lazy-load RAGPipeline."""
+    global _rag_pipeline
+    if _rag_pipeline is None:
+        from core.rag_pipeline import get_rag_pipeline as _get_rag
+        _rag_pipeline = _get_rag()
+    return _rag_pipeline
+
+
+def get_structured_extractor():
+    """Lazy-load StructuredExtractor."""
+    global _structured_extractor
+    if _structured_extractor is None:
+        from core.structured_extractor import get_structured_extractor as _get_ext
+        _structured_extractor = _get_ext()
+    return _structured_extractor
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)
@@ -71,7 +106,7 @@ async def upload_document(file: UploadFile = File(...)):
             f.write(content)
         
         # Process document
-        document_id, chunks = document_processor.process_file(
+        document_id, chunks = get_document_processor().process_file(
             str(temp_path),
             file_ext
         )
@@ -171,7 +206,7 @@ async def extract_structured_data(request: ExtractRequest):
         file_type = metadata["file_type"]
         
         # Get full document text
-        full_text = document_processor.get_full_text(file_path, file_type)
+        full_text = get_document_processor().get_full_text(file_path, file_type)
         
         # Extract structured data
         extractor = get_structured_extractor()

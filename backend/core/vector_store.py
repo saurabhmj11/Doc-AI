@@ -2,14 +2,18 @@
 Vector Store Module
 
 ChromaDB-based vector storage and retrieval for document chunks.
+Imports are deferred until first use to prevent blocking server startup.
 """
 
-import chromadb
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import os
 
 from config import get_settings
-from core.document_processor import DocumentChunk
+
+# Use TYPE_CHECKING to avoid importing document_processor at module load time
+# This prevents heavy imports (fitz, docx, sentence_transformers) from blocking startup
+if TYPE_CHECKING:
+    from core.document_processor import DocumentChunk
 
 settings = get_settings()
 
@@ -18,6 +22,9 @@ class VectorStore:
     """ChromaDB-based vector store for document embeddings."""
     
     def __init__(self):
+        # Lazy import chromadb - don't block server startup
+        import chromadb
+        
         # Ensure persist directory exists
         os.makedirs(settings.chroma_persist_dir, exist_ok=True)
         
@@ -32,7 +39,7 @@ class VectorStore:
     def add_document(
         self, 
         document_id: str, 
-        chunks: list[DocumentChunk],
+        chunks: "list[DocumentChunk]",
         filename: str,
         file_type: str,
         file_path: str

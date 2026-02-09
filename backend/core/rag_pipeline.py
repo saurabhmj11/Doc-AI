@@ -41,7 +41,8 @@ Rules:
 For numbers, dates, and names - use exactly what's in the document."""
 
     def __init__(self):
-        self.embedding_model = get_embedding_model()
+        # Lazy load embedding model - don't call get_embedding_model() here
+        self._embedding_model = None
         self.vector_store = get_vector_store()
         self.confidence_scorer = get_confidence_scorer()
         self.guardrails = get_guardrails()
@@ -52,6 +53,13 @@ For numbers, dates, and names - use exactly what's in the document."""
             self.llm = genai.GenerativeModel('gemini-1.5-flash')
         else:
             self.llm = None
+    
+    @property
+    def embedding_model(self):
+        """Lazy-load embedding model on first use."""
+        if self._embedding_model is None:
+            self._embedding_model = get_embedding_model()
+        return self._embedding_model
     
     def ask(self, document_id: str, question: str) -> dict:
         """
