@@ -35,7 +35,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        fromService:
-          name: doc-ai-backend
-          type: web
-          property: host
+        value: doc-ai-backend-bpez.onrender.com
