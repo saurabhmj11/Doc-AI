@@ -7,6 +7,8 @@ Imports are deferred until first use to prevent blocking server startup.
 
 from typing import Optional, TYPE_CHECKING
 import os
+import json
+from pathlib import Path
 
 from config import get_settings
 
@@ -33,8 +35,28 @@ class VectorStore:
             path=settings.chroma_persist_dir
         )
         
-        # Document metadata storage (in-memory for POC)
-        self._document_metadata: dict[str, dict] = {}
+        # Document metadata storage
+        self.metadata_file = Path(settings.chroma_persist_dir) / "document_metadata.json"
+        self._document_metadata: dict[str, dict] = self._load_metadata()
+
+    def _load_metadata(self) -> dict[str, dict]:
+        """Load metadata from JSON file."""
+        if self.metadata_file.exists():
+            try:
+                with open(self.metadata_file, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error loading metadata: {e}")
+                return {}
+        return {}
+
+    def _save_metadata(self) -> None:
+        """Save metadata to JSON file."""
+        try:
+            with open(self.metadata_file, "w") as f:
+                json.dump(self._document_metadata, f, indent=2)
+        except Exception as e:
+            print(f"Error saving metadata: {e}")
     
     def add_document(
         self, 
@@ -89,6 +111,7 @@ class VectorStore:
             "chunk_count": len(chunks),
             "collection_name": f"doc_{document_id.replace('-', '_')}"
         }
+        self._save_metadata()
     
     def search(
         self, 
@@ -222,7 +245,9 @@ class VectorStore:
         
         collection_name = self._document_metadata[document_id]["collection_name"]
         self.client.delete_collection(collection_name)
+        self.client.delete_collection(collection_name)
         del self._document_metadata[document_id]
+        self._save_metadata()
         return True
 
 
