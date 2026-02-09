@@ -8,16 +8,23 @@ Uses RAG + Gemini for Q&A, plus some basic extraction logic.
 """
 
 import os
+from dotenv import load_dotenv
+
+# Load env vars from the same directory as this file
+# This must happen BEFORE importing config or other modules that use settings
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 
 from api.routes import router
 from config import get_settings
+from core.error_handling import setup_logging
 
-# grab env vars first
-load_dotenv()
 settings = get_settings()
+
+# Configure logging before initializing components
+setup_logging()
 
 # spin up the app
 app = FastAPI(
@@ -55,10 +62,25 @@ async def root():
 @app.get("/health")
 async def health():
     """Quick health check - useful for monitoring"""
-    return {
+    from core.error_handling import get_gemini_circuit_breaker, get_ollama_circuit_breaker
+    
+    # Get circuit breaker states
+    gemini_cb = get_gemini_circuit_breaker() if settings.llm_mode == "online" else None
+    ollama_cb = get_ollama_circuit_breaker() if settings.llm_mode == "offline" else None
+    
+    health_status = {
         "status": "ok",
-        "llm_ready": bool(settings.gemini_api_key)
+        "llm_mode": settings.llm_mode,
+        "llm_configured": bool(settings.gemini_api_key) if settings.llm_mode == "online" else True,
     }
+    
+    # Add circuit breaker status
+    if gemini_cb:
+        health_status["gemini_circuit_breaker"] = gemini_cb.state.value
+    if ollama_cb:
+        health_status["ollama_circuit_breaker"] = ollama_cb.state.value
+    
+    return health_status
 
 
 # for running directly with python main.py

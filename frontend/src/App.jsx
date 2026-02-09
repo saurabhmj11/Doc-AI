@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import SettingsModal from './components/SettingsModal'
 
 // Use hardcoded production URL for stability on Render, fallback to /api for dev
 const API_BASE = import.meta.env.PROD
@@ -18,6 +19,7 @@ function App() {
     const [extracting, setExtracting] = useState(false)
     const [pipelineStage, setPipelineStage] = useState(null)
     const [showArchitecture, setShowArchitecture] = useState(true)
+    const [showSettings, setShowSettings] = useState(false)
 
     const fileInputRef = useRef(null)
     const messagesEndRef = useRef(null)
@@ -250,7 +252,36 @@ function App() {
 
     return (
         <div className="app">
-            <header className="header">
+            {showSettings && (
+                <SettingsModal
+                    onClose={() => setShowSettings(false)}
+                    apiBase={API_BASE}
+                />
+            )}
+
+            <header className="header" style={{ position: 'relative' }}>
+                <button
+                    className="btn-settings"
+                    onClick={() => setShowSettings(true)}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        right: 0,
+                        background: 'transparent',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text-secondary)',
+                        padding: '8px 16px',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '0.9rem',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    ⚙️ Settings
+                </button>
                 <h1>🔮 <span className="gradient">Ultra Doc-Intelligence</span></h1>
                 <p>AI-powered logistics document assistant with RAG, guardrails & structured extraction</p>
             </header>

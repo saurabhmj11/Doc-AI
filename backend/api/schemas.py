@@ -82,3 +82,21 @@ class ErrorResponse(BaseModel):
     """Standard error response."""
     error: str
     detail: Optional[str] = None
+
+
+# ============ Configuration ============
+
+class ConfigResponse(BaseModel):
+    """Current configuration settings."""
+    llm_mode: str
+    gemini_api_key_configured: bool
+    ollama_base_url: str
+    ollama_model: str
+
+
+class ConfigUpdate(BaseModel):
+    """Configuration update model."""
+    llm_mode: str = Field(..., pattern="^(online|offline)$")
+    gemini_api_key: Optional[str] = None
+    ollama_base_url: Optional[str] = None
+    ollama_model: Optional[str] = None

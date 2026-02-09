@@ -13,8 +13,14 @@ chardet>=5.2.0
 # ML/AI
 
 chromadb>=0.4.0
-google-generativeai>=0.3.0
+google-generativeai>=0.8.0
+ollama>=0.1.0
+tenacity>=8.2.0  # Retry library with exponential backoff
+sentence-transformers>=2.2.0  # Cross-encoder for reranking
 
 # Utilities
 python-dotenv>=1.0.0
 numpy>=1.24.0
+
+# MCP Server
+mcp>=0.9.0

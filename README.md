@@ -33,71 +33,59 @@ Open http://localhost:5173
 
 - **Backend**: FastAPI + Python 3.10+
 - **LLM**: Google Gemini 1.5 Flash
-- **Embeddings**: sentence-transformers (all-MiniLM-L6-v2)
+- **Embeddings**: Google Gemini Embeddings (models/gemini-embedding-001)
 - **Vector DB**: ChromaDB (local file storage)
 - **Frontend**: React + Vite
 
+## Architecture
+
+```mermaid
+graph TD
+    User[User] -->|Upload/Ask| API[FastAPI Backend]
+    API -->|Process| Processor[Document Processor]
+    Processor -->|Chunk| Chunker
+    Chunker -->|Embed| Embedder[Gemini Embeddings]
+    Embedder -->|Store| VectorDB[ChromaDB]
+    
+    API -->|Query| RAG[RAG Pipeline]
+    RAG -->|Retrieve| VectorDB
+    RAG -->|Rerank| Reranker[Cross-Encoder]
+    RAG -->|Generate| LLM[Gemini 1.5 Flash]
+    
+    RAG -->|Score| Confidence[Confidence Scorer]
+    RAG -->|Check| Guardrails
+```
+
 ## How the RAG works
 
-```
-Document → Parse → Chunk → Embed → Store in ChromaDB
-                                          ↓
-Question → Embed → Search similar chunks → Build context → Gemini → Answer
-```
+1. **Ingestion**: Documents are parsed, split into 512-token chunks with overlap, embedded using Gemini's model, and stored in ChromaDB.
+2. **Retrieval**: User questions are embedded, and we retrieve the top 10 most similar chunks.
+3. **Reranking**: A cross-encoder model (`ms-marco-MiniLM-L-6-v2`) reranks these chunks to find the most semantically relevant ones.
+4. **Generation**: The top 3 chunks are fed to Gemini 1.5 Flash with a strict prompt to answer only from context.
+5. **Scoring**: A confidence score is calculated based on retrieval similarity, answer grounding, and Q&A relevance.
 
-### Chunking
+### Guardrails & Safety
 
-Tried to be smart about it - splits on paragraph boundaries rather than arbitrary character counts. Uses 512 token chunks with 50 token overlap so we don't lose context at boundaries.
+- **Low Retrieval Guardrail**: If the best chunk has similarity < 0.15, we refuse to answer ("Information not found").
+- **Confidence Threshold**: Answers with confidence score < 0.5 are flagged or withheld.
+- **Hallucination Check**: The LLM is prompted to strictly say "not found" if context is missing.
 
-### Confidence scoring
+## Structural Extraction
 
-Four signals, weighted average:
-- Retrieval similarity (30%) - how close are the top chunks to the query
-- Chunk agreement (25%) - do the retrieved chunks agree with each other
-- Answer coverage (25%) - is the answer grounded in the context
-- Q-A relevance (20%) - does the answer actually address the question
+Uses Gemini's structured output (JSON mode) to robustly extract specific fields:
+- `shipment_id`, `shipper`, `consignee`
+- `pickup_datetime`, `delivery_datetime`
+- `equipment_type`, `mode`, `rate`, `currency`
 
-### Guardrails
+Returns `null` for any field not explicitly present in the document.
 
-Three checks to prevent hallucination:
-1. **Low retrieval** - if similarity < 0.15, refuse to answer
-2. **Low confidence** - if score < 0.5, add warning
-3. **Poor grounding** - if answer isn't well-supported by context, flag it
+## Failure Cases & Limitations
 
-## API endpoints
+- **Handwritten Text**: OCR quality depends on the input; handwriting is often missed.
+- **Complex Tables**: Tables spanning multiple pages or with complex headers can be chunked incorrectly, leading to answers missing context.
+- **Ambiguous Dates**: "Next Friday" is hard to resolve without a reference date (currently assumes document date or today).
+- **Multi-Document Reasoning**: RAG currently treats all chunks equally; hard to answer "Compare the rate in Doc A vs Doc B" without specific logic.
 
-| Endpoint | Method | What it does |
-|----------|--------|--------------|
-| `/api/upload` | POST | Upload a document |
-| `/api/ask` | POST | Ask a question |
-| `/api/extract` | POST | Extract structured data |
-| `/docs` | GET | Swagger docs |
-
-## Structured extraction
-
-Pulls these fields from logistics docs:
-- shipment_id, shipper, consignee
-- pickup/delivery dates
-- equipment type, mode
-- rate, currency, weight
-- carrier name
-
-Returns JSON with nulls for missing fields.
-
-## Known limitations
-
-- Single document at a time (no multi-doc RAG yet)
-- English only
-- Scanned PDFs with poor OCR might not work great
-- Complex tables can chunk weirdly
-
-## Stuff I'd add with more time
-
-- Multi-document queries
-- Better table extraction
-- User feedback loop to improve accuracy
-- Caching for frequently asked questions
-- Rate limiting
 
 ---
 

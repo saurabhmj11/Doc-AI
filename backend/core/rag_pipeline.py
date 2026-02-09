@@ -8,6 +8,7 @@ I added some fallbacks in case the LLM is down or unavailable.
 """
 
 import os
+import logging
 from typing import Optional
 import google.generativeai as genai
 
@@ -16,8 +17,15 @@ from core.model_loader import get_embedding_model
 from core.vector_store import get_vector_store
 from core.confidence_scorer import get_confidence_scorer
 from core.guardrails import get_guardrails, GuardrailResult
+from core.error_handling import (
+    get_gemini_circuit_breaker,
+    get_ollama_circuit_breaker,
+    api_retry,
+    APIError
+)
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class RAGPipeline:
@@ -43,16 +51,32 @@ For numbers, dates, and names - use exactly what's in the document."""
     def __init__(self):
         # Lazy load embedding model - don't call get_embedding_model() here
         self._embedding_model = None
+        self._reranker = None  # Lazy load reranker
         self.vector_store = get_vector_store()
         self.confidence_scorer = get_confidence_scorer()
         self.guardrails = get_guardrails()
         
-        # set up gemini if we have a key
-        if settings.gemini_api_key:
-            genai.configure(api_key=settings.gemini_api_key)
-            self.llm = genai.GenerativeModel('gemini-1.5-flash')
+        # set up LLM based on mode
+        self.llm_mode = settings.llm_mode
+        
+        if self.llm_mode == "offline":
+            import ollama
+            self.ollama_client = ollama.Client(host=settings.ollama_base_url)
+            self.ollama_model = settings.ollama_model
+            self.llm = True # marker that we are ready
+            self.circuit_breaker = get_ollama_circuit_breaker()
+            logger.info(f"RAG Pipeline initialized in OFFLINE mode (Model: {self.ollama_model})")
         else:
-            self.llm = None
+            # set up gemini if we have a key
+            if settings.gemini_api_key:
+                genai.configure(api_key=settings.gemini_api_key)
+                self.llm = genai.GenerativeModel('gemini-1.5-flash')
+                self.circuit_breaker = get_gemini_circuit_breaker()
+                logger.info("RAG Pipeline initialized in ONLINE mode (Gemini)")
+            else:
+                self.llm = None
+                self.circuit_breaker = None
+                logger.warning("RAG Pipeline initialized WITHOUT LLM (no API key)")
     
     @property
     def embedding_model(self):
@@ -60,6 +84,15 @@ For numbers, dates, and names - use exactly what's in the document."""
         if self._embedding_model is None:
             self._embedding_model = get_embedding_model()
         return self._embedding_model
+    
+    @property
+    def reranker(self):
+        """Lazy-load reranker on first use."""
+        if self._reranker is None and settings.enable_reranking:
+            from core.reranker import get_reranker
+            self._reranker = get_reranker()
+            logger.info("Reranker loaded for RAG pipeline")
+        return self._reranker
     
     def ask(self, document_ids: list[str] | str, question: str) -> dict:
         """
@@ -92,12 +125,27 @@ For numbers, dates, and names - use exactly what's in the document."""
                 "guardrail_message": retrieval_check.message
             }
         
+        # Rerank chunks if enabled
+        reranked = False
+        if settings.enable_reranking and self.reranker:
+            try:
+                logger.debug(f"Reranking {len(chunks)} retrieved chunks")
+                chunks = self.reranker.rerank(question, chunks, top_k=settings.top_k_rerank)
+                reranked = True
+                logger.info(f"Reranking completed, using top {len(chunks)} chunks")
+            except Exception as e:
+                logger.warning(f"Reranking failed, using original order: {e}")
+                reranked = False
+        
         # build context from best chunks
         top_chunks = chunks[:settings.top_k_rerank]
         context = self._build_context(top_chunks)
         
         # ask the LLM
-        answer = self._generate_answer(question, context)
+        if self.llm_mode == "offline":
+            answer = self._generate_answer_ollama(question, context)
+        else:
+            answer = self._generate_answer(question, context)
         
         # score how confident we are
         confidence, breakdown = self.confidence_scorer.compute_confidence(
@@ -133,7 +181,8 @@ For numbers, dates, and names - use exactly what's in the document."""
             "confidence_level": self.confidence_scorer.get_confidence_level(confidence),
             "sources": self._format_sources(top_chunks),
             "guardrail_status": guardrail_result.status,
-            "guardrail_message": guardrail_result.message
+            "guardrail_message": guardrail_result.message,
+            "reranked": reranked  # Add reranking status
         }
     
     def _build_context(self, chunks: list[dict]) -> str:
@@ -145,10 +194,53 @@ For numbers, dates, and names - use exactly what's in the document."""
             parts.append(f"[Source {i} - {filename}{page}]:\n{chunk['text']}")
         return "\n\n".join(parts)
     
-    def _generate_answer(self, question: str, context: str) -> str:
-        """Call the LLM with our context. Returns specific error if fails."""
+    def _generate_answer_ollama(self, question: str, context: str) -> str:
+        """Generate answer using Ollama with retry and circuit breaker."""
         if not self.llm:
-            return "Error: Gemini API key not configured. Check backend logs."
+            logger.error("Ollama not initialized")
+            if settings.enable_extractive_fallback:
+                return self._extractive_fallback(question, context)
+            return "Service temporarily unavailable. Please try again later."
+             
+        prompt = f"""You are an AI logistics assistant. Answer the question based ONLY on the context provided.
+Context:
+{context}
+
+Question: {question}
+
+Answer:"""
+
+        try:
+            # Use circuit breaker for API call
+            def _call_ollama():
+                return self.ollama_client.chat(model=self.ollama_model, messages=[
+                    {'role': 'user', 'content': prompt},
+                ])
+            
+            response = self.circuit_breaker.call(_call_ollama)
+            return response['message']['content']
+            
+        except APIError as e:
+            # Circuit breaker is open
+            logger.warning(f"Ollama API circuit breaker open: {str(e)}")
+            if settings.enable_extractive_fallback:
+                return self._extractive_fallback(question, context)
+            return "Service temporarily unavailable due to high error rate. Please try again in a moment."
+            
+        except Exception as e:
+            logger.error(f"Ollama API error: {str(e)}", exc_info=True)
+            if settings.enable_extractive_fallback:
+                logger.info("Using extractive fallback due to Ollama error")
+                return self._extractive_fallback(question, context)
+            return "An error occurred while processing your question. Please try again."
+
+    def _generate_answer(self, question: str, context: str) -> str:
+        """Call Gemini API with retry logic, circuit breaker, and fallback."""
+        if not self.llm:
+            logger.warning("Gemini API key not configured")
+            if settings.enable_extractive_fallback:
+                return self._extractive_fallback(question, context)
+            return "Service configuration error. Please contact support."
         
         # Improved Prompt
         prompt = f"""You are an AI logistics assistant analyzing documents.
@@ -164,28 +256,76 @@ User Question: {question}
 Answer:"""
         
         try:
-            # Use generation config
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(prompt)
-            
-            if not response.text:
-                return "The answer was blocked or safety filtered."
+            # Wrapper function for circuit breaker and retry
+            @api_retry(api_name="Gemini", max_attempts=settings.retry_attempts)
+            def _call_gemini():
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content(prompt)
                 
-            return response.text.strip()
+                if not response.text:
+                    logger.warning("Gemini response was blocked or safety filtered")
+                    raise APIError("Response blocked by safety filters")
+                    
+                return response.text.strip()
+            
+            # Call through circuit breaker
+            answer = self.circuit_breaker.call(_call_gemini)
+            logger.debug(f"Gemini API call successful for question: {question[:50]}...")
+            return answer
+            
+        except APIError as e:
+            # Circuit breaker is open
+            logger.warning(f"Gemini API circuit breaker open: {str(e)}")
+            if settings.enable_extractive_fallback:
+                logger.info("Using extractive fallback due to circuit breaker")
+                return self._extractive_fallback(question, context)
+            return "Service temporarily unavailable due to high error rate. Please try again in a moment."
             
         except Exception as e:
-            # Return the actual error to debug!
-            return f"Error from Gemini API: {str(e)}"
+            # All retries exhausted or other error
+            logger.error(f"Gemini API error after retries: {type(e).__name__}: {str(e)}", exc_info=True)
+            
+            if settings.enable_extractive_fallback:
+                logger.info("Using extractive fallback due to Gemini API error")
+                return self._extractive_fallback(question, context)
+            
+            return "An error occurred while processing your question. Please try again."
     
     def _extractive_fallback(self, question: str, context: str) -> str:
-        """Backup plan - just return the top chunk text"""
-        if context:
-            parts = context.split("[Source")
-            if len(parts) > 1:
-                first = parts[1].split("]:", 1)
-                if len(first) > 1:
-                    return first[1].strip()[:500] + "..."
-        return "Unable to generate answer. Please check the document directly."
+        """Enhanced extractive fallback - return most relevant chunk with context."""
+        logger.info("Using extractive fallback method")
+        
+        if not context:
+            return "I couldn't find relevant information in the document to answer your question."
+        
+        # Split context by sources
+        parts = context.split("[Source")
+        
+        if len(parts) > 1:
+            # Get the first source (most relevant)
+            first_source = parts[1].split("]:", 1)
+            if len(first_source) > 1:
+                source_info = first_source[0].strip()
+                text = first_source[1].strip()
+                
+                # Limit text length but try to keep complete sentences
+                if len(text) > 500:
+                    # Find last period within 500 chars
+                    truncated = text[:500]
+                    last_period = truncated.rfind('.')
+                    if last_period > 200:  # At least 200 chars
+                        text = truncated[:last_period + 1]
+                    else:
+                        text = truncated + "..."
+                
+                return f"""Based on the document, here's the most relevant information I found:
+
+{text}
+
+(Note: This is a direct excerpt from the document. For a more detailed answer, please try again later.)"""
+        
+        # Fallback if parsing fails
+        return "I found some information but couldn't process it properly. Please try again or rephrase your question."
     
     def _format_sources(self, chunks: list[dict]) -> list[dict]:
         """Format source citations for the response"""
@@ -194,13 +334,20 @@ Answer:"""
             text = chunk["text"]
             if len(text) > 300:
                 text = text[:300] + "..."
-            sources.append({
+            
+            source = {
                 "text": text,
                 "page": chunk.get("page"),
                 "filename": chunk.get("filename"),
                 "chunk_id": chunk["chunk_id"],
                 "similarity_score": round(chunk.get("similarity_score", 0), 3)
-            })
+            }
+            
+            # Add rerank score if available
+            if "rerank_score" in chunk:
+                source["rerank_score"] = round(chunk["rerank_score"], 3)
+            
+            sources.append(source)
         return sources
 
 

@@ -1,0 +1,14 @@
+{
+    "mcpServers": {
+        "ultra-doc-intelligence": {
+            "command": "python",
+            "args": [
+                "f:/product/company/ultra-doc-intelligence/backend/run_mcp_server.py"
+            ],
+            "cwd": "f:/product/company/ultra-doc-intelligence/backend",
+            "env": {
+                "PYTHONPATH": "f:/product/company/ultra-doc-intelligence/backend"
+            }
+        }
+    }
+}

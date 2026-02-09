@@ -18,7 +18,9 @@ from api.schemas import (
     SourceChunk,
     ExtractRequest,
     ExtractResponse,
-    ErrorResponse
+    ErrorResponse,
+    ConfigResponse,
+    ConfigUpdate
 )
 
 settings = get_settings()
@@ -287,3 +289,80 @@ async def delete_document(document_id: str):
         file_path.unlink()
     
     return {"status": "deleted", "document_id": document_id}
+    return {"status": "deleted", "document_id": document_id}
+
+
+@router.get("/config", response_model=ConfigResponse)
+async def get_config():
+    """Get current configuration."""
+    # Force reload settings to ensure we get latest
+    from config import get_settings
+    current_settings = get_settings()
+    
+    return ConfigResponse(
+        llm_mode=current_settings.llm_mode,
+        gemini_api_key_configured=bool(current_settings.gemini_api_key),
+        ollama_base_url=current_settings.ollama_base_url,
+        ollama_model=current_settings.ollama_model
+    )
+
+
+@router.post("/config", response_model=ConfigResponse)
+async def update_config(config_update: ConfigUpdate):
+    """Update configuration and .env file."""
+    # 1. Update .env file
+    env_path = Path(__file__).parent.parent / ".env"
+    
+    # Read existing env
+    env_content = {}
+    if env_path.exists():
+        with open(env_path, "r") as f:
+            for line in f:
+                if "=" in line:
+                    key, val = line.strip().split("=", 1)
+                    env_content[key] = val
+    
+    # Update values
+    env_content["LLM_MODE"] = config_update.llm_mode
+    if config_update.gemini_api_key:
+        env_content["GEMINI_API_KEY"] = config_update.gemini_api_key
+    if config_update.ollama_base_url:
+        env_content["OLLAMA_BASE_URL"] = config_update.ollama_base_url
+    if config_update.ollama_model:
+        env_content["OLLAMA_MODEL"] = config_update.ollama_model
+        
+    # Write back to .env
+    with open(env_path, "w") as f:
+        for key, val in env_content.items():
+            f.write(f"{key}={val}\n")
+            
+    # 2. Force reload settings
+    # We need to clear lru_cache of get_settings
+    from config import get_settings
+    get_settings.cache_clear()
+    
+    # Also reload dotenv to pick up changes in process environment
+    from dotenv import load_dotenv
+    load_dotenv(env_path, override=True)
+    
+    # 3. Reload components that depend on settings
+    # This is tricky without restart, but for now we'll just clear the singletons
+    # so they get re-initialized on next request
+    global _rag_pipeline, _structured_extractor, _document_processor, _vector_store
+    
+    # Pipeline and Extractor definitely need reload if LLM mode changes
+    _rag_pipeline = None
+    _structured_extractor = None
+    
+    # Vector store might need reload if embedding model changes (but that's harder to swap on fly)
+    # We'll leave vector store for now as changing embedding model usually requires re-indexing
+    
+    # Get new settings verify
+    new_settings = get_settings()
+    
+    return ConfigResponse(
+        llm_mode=new_settings.llm_mode,
+        gemini_api_key_configured=bool(new_settings.gemini_api_key),
+        ollama_base_url=new_settings.ollama_base_url,
+        ollama_model=new_settings.ollama_model
+    )

@@ -5,13 +5,21 @@ Extract structured shipment data from logistics documents.
 """
 
 import json
+import logging
 from typing import Optional
 import google.generativeai as genai
 
 from config import get_settings
 from api.schemas import ShipmentData
+from core.error_handling import (
+    get_gemini_circuit_breaker,
+    get_ollama_circuit_breaker,
+    api_retry,
+    APIError
+)
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class StructuredExtractor:
@@ -53,12 +61,26 @@ DOCUMENT:
 Return ONLY valid JSON (no markdown, no explanation):"""
 
     def __init__(self):
-        # Configure Gemini
-        if settings.gemini_api_key:
-            genai.configure(api_key=settings.gemini_api_key)
-            self.llm = genai.GenerativeModel('gemini-1.5-flash')
+        self.llm_mode = settings.llm_mode
+        
+        if self.llm_mode == "offline":
+            import ollama
+            self.ollama_client = ollama.Client(host=settings.ollama_base_url)
+            self.ollama_model = settings.ollama_model
+            self.llm = True # marker
+            self.circuit_breaker = get_ollama_circuit_breaker()
+            logger.info(f"Structured Extractor initialized in OFFLINE mode ({self.ollama_model})")
         else:
-            self.llm = None
+            # Configure Gemini
+            if settings.gemini_api_key:
+                genai.configure(api_key=settings.gemini_api_key)
+                self.llm = genai.GenerativeModel('gemini-1.5-flash')
+                self.circuit_breaker = get_gemini_circuit_breaker()
+                logger.info("Structured Extractor initialized in ONLINE mode (Gemini)")
+            else:
+                self.llm = None
+                self.circuit_breaker = None
+                logger.warning("Structured Extractor initialized WITHOUT LLM (no API key)")
     
     def extract(self, document_text: str) -> tuple[ShipmentData, float]:
         """
@@ -71,19 +93,40 @@ Return ONLY valid JSON (no markdown, no explanation):"""
             Tuple of (ShipmentData, confidence_score)
         """
         if not self.llm:
+            logger.warning("LLM not available, using regex fallback extraction")
             return self._fallback_extraction(document_text)
         
         prompt = self.EXTRACTION_PROMPT.format(document_text=document_text[:8000])  # Limit context
         
         try:
-            response = self.llm.generate_content(prompt)
-            json_text = response.text.strip()
+            # Wrapper for circuit breaker and retry
+            @api_retry(api_name=f"{self.llm_mode.upper()}_Extraction", max_attempts=settings.retry_attempts)
+            def _call_llm():
+                if self.llm_mode == "offline":
+                    response = self.ollama_client.chat(model=self.ollama_model, messages=[
+                        {'role': 'user', 'content': prompt},
+                    ])
+                    return response['message']['content']
+                else:
+                    # Gemini
+                    response = self.llm.generate_content(prompt)
+                    if not response.text:
+                        raise APIError("Empty response from Gemini")
+                    return response.text.strip()
+            
+            # Call through circuit breaker
+            json_text = self.circuit_breaker.call(_call_llm)
+            logger.debug("LLM extraction completed successfully")
             
             # Clean up response (remove markdown code blocks if present)
             if json_text.startswith("```"):
-                json_text = json_text.split("```")[1]
-                if json_text.startswith("json"):
-                    json_text = json_text[4:]
+                # Handle cases where the language name is included e.g. ```json
+                lines = json_text.split('\n')
+                if lines[0].startswith("```"):
+                     json_text = "\n".join(lines[1:-1])
+                else:
+                     json_text = json_text.split("```")[1]
+            
             json_text = json_text.strip()
             
             # Parse JSON
@@ -106,12 +149,21 @@ Return ONLY valid JSON (no markdown, no explanation):"""
             
             # Calculate confidence based on fields found
             confidence = self._calculate_confidence(shipment)
+            logger.info(f"LLM extraction completed with {confidence:.2f} confidence")
             
             return shipment, confidence
             
-        except json.JSONDecodeError as e:
+        except APIError as e:
+            # Circuit breaker is open
+            logger.warning(f"Circuit breaker open for extraction: {str(e)}")
             return self._fallback_extraction(document_text)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON Decode Error in extractor: {e}\nOutput: {json_text[:200]}...")
+            return self._fallback_extraction(document_text)
+            
         except Exception as e:
+            logger.error(f"Error in extractor: {type(e).__name__}: {str(e)}", exc_info=True)
             return self._fallback_extraction(document_text)
     
     def _parse_rate(self, rate_value) -> Optional[float]:
@@ -167,44 +219,131 @@ Return ONLY valid JSON (no markdown, no explanation):"""
         return min(1.0, base_confidence + important_bonus)
     
     def _fallback_extraction(self, document_text: str) -> tuple[ShipmentData, float]:
-        """Fallback extraction using regex patterns."""
+        """Enhanced fallback extraction using comprehensive regex patterns."""
         import re
         
+        logger.info("Using regex-based fallback extraction")
         shipment = ShipmentData()
+        extracted_fields = []
         
-        # Try to extract common patterns
-        # Rate patterns
+        # Shipment ID patterns - more comprehensive
+        shipment_id_patterns = [
+            r'(?:BOL|Bill of Lading|B/L)[#:\s]+([A-Z0-9-]+)',
+            r'(?:Load|Shipment|Order)[#:\s]+([A-Z0-9-]+)',
+            r'(?:PRO|Reference)[#:\s]+([A-Z0-9-]+)',
+            r'(?:Tracking|Confirmation)[#:\s]+([A-Z0-9-]+)'
+        ]
+        for pattern in shipment_id_patterns:
+            match = re.search(pattern, document_text, re.IGNORECASE)
+            if match:
+                shipment.shipment_id = match.group(1)
+                extracted_fields.append('shipment_id')
+                logger.debug(f"Extracted shipment_id: {shipment.shipment_id}")
+                break
+        
+        # Shipper/Consignee patterns
+        shipper_patterns = [
+            r'Shipper[:\s]+([^\n]{10,100})',
+            r'From[:\s]+([^\n]{10,100})',
+            r'Origin[:\s]+([^\n]{10,100})'
+        ]
+        for pattern in shipper_patterns:
+            match = re.search(pattern, document_text, re.IGNORECASE)
+            if match:
+                shipment.shipper = match.group(1).strip()
+                extracted_fields.append('shipper')
+                logger.debug(f"Extracted shipper: {shipment.shipper[:50]}...")
+                break
+        
+        consignee_patterns = [
+            r'Consignee[:\s]+([^\n]{10,100})',
+            r'To[:\s]+([^\n]{10,100})',
+            r'Destination[:\s]+([^\n]{10,100})'
+        ]
+        for pattern in consignee_patterns:
+            match = re.search(pattern, document_text, re.IGNORECASE)
+            if match:
+                shipment.consignee = match.group(1).strip()
+                extracted_fields.append('consignee')
+                logger.debug(f"Extracted consignee: {shipment.consignee[:50]}...")
+                break
+        
+        # Rate patterns - improved
         rate_patterns = [
-            r'\$[\d,]+\.?\d*',
-            r'Rate[:\s]+\$?[\d,]+\.?\d*',
-            r'Total[:\s]+\$?[\d,]+\.?\d*'
+            r'(?:Rate|Total|Amount)[:\s]*\$?\s*([\d,]+\.?\d*)',
+            r'\$\s*([\d,]+\.\d{2})',
+            r'USD[:\s]*([\d,]+\.?\d*)'
         ]
         for pattern in rate_patterns:
             match = re.search(pattern, document_text, re.IGNORECASE)
             if match:
-                rate_str = re.sub(r'[^\d.]', '', match.group())
+                rate_str = re.sub(r'[^\d.]', '', match.group(1))
                 try:
                     shipment.rate = float(rate_str)
                     shipment.currency = "USD"
+                    extracted_fields.extend(['rate', 'currency'])
+                    logger.debug(f"Extracted rate: ${shipment.rate}")
                     break
                 except ValueError:
                     pass
         
-        # Date patterns
-        date_pattern = r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}'
+        # Date patterns - improved
+        date_pattern = r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?:\s*[AP]M)?)?'
         dates = re.findall(date_pattern, document_text)
         if len(dates) >= 1:
             shipment.pickup_datetime = dates[0]
+            extracted_fields.append('pickup_datetime')
+            logger.debug(f"Extracted pickup_datetime: {shipment.pickup_datetime}")
         if len(dates) >= 2:
             shipment.delivery_datetime = dates[1]
+            extracted_fields.append('delivery_datetime')
+            logger.debug(f"Extracted delivery_datetime: {shipment.delivery_datetime}")
         
-        # Weight patterns
-        weight_pattern = r'(\d{1,3}(?:,\d{3})*)\s*(lbs?|kg|pounds?|kilograms?)'
+        # Weight patterns - improved
+        weight_pattern = r'(?:Weight[:\s]*)?([\d,]+)\s*(lbs?|kg|pounds?|kilograms?)'
         weight_match = re.search(weight_pattern, document_text, re.IGNORECASE)
         if weight_match:
             shipment.weight = f"{weight_match.group(1)} {weight_match.group(2)}"
+            extracted_fields.append('weight')
+            logger.debug(f"Extracted weight: {shipment.weight}")
+        
+        # Equipment type patterns
+        equipment_patterns = [
+            r'(?:Equipment|Trailer)[:\s]*([^\n]{5,50})',
+            r'(\d{2,3}[\'"]?\s*(?:Dry Van|Reefer|Flatbed|Container))'
+        ]
+        for pattern in equipment_patterns:
+            match = re.search(pattern, document_text, re.IGNORECASE)
+            if match:
+                shipment.equipment_type = match.group(1).strip()
+                extracted_fields.append('equipment_type')
+                logger.debug(f"Extracted equipment_type: {shipment.equipment_type}")
+                break
+        
+        # Mode patterns
+        mode_pattern = r'\b(TL|LTL|FTL|LCL|FCL|Air|Ocean|Intermodal)\b'
+        mode_match = re.search(mode_pattern, document_text, re.IGNORECASE)
+        if mode_match:
+            shipment.mode = mode_match.group(1).upper()
+            extracted_fields.append('mode')
+            logger.debug(f"Extracted mode: {shipment.mode}")
+        
+        # Carrier name patterns
+        carrier_patterns = [
+            r'Carrier[:\s]+([^\n]{5,50})',
+            r'Trucking Company[:\s]+([^\n]{5,50})'
+        ]
+        for pattern in carrier_patterns:
+            match = re.search(pattern, document_text, re.IGNORECASE)
+            if match:
+                shipment.carrier_name = match.group(1).strip()
+                extracted_fields.append('carrier_name')
+                logger.debug(f"Extracted carrier_name: {shipment.carrier_name}")
+                break
         
         confidence = self._calculate_confidence(shipment)
+        logger.info(f"Regex extraction completed: {len(extracted_fields)} fields extracted, confidence={confidence:.2f}")
+        
         return shipment, confidence
 
 

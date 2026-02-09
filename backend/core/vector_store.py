@@ -113,6 +113,10 @@ class VectorStore:
         collection_name = self._document_metadata[document_id]["collection_name"]
         collection = self.client.get_collection(collection_name)
         
+        # Ensure query_embedding is a list
+        if hasattr(query_embedding, 'tolist'):
+            query_embedding = query_embedding.tolist()
+        
         results = collection.query(
             query_embeddings=[query_embedding],
             n_results=min(top_k, 100),  # Limit to avoid warning

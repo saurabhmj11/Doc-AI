@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     # API Keys
     gemini_api_key: str = ""
     
+    # LLM Configuration
+    llm_mode: str = "online"  # 'online' (Gemini) or 'offline' (Ollama)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3"
+    ollama_embedding_model: str = "nomic-embed-text"
+    
     # Server settings
     host: str = "0.0.0.0"
     port: int = 8000
@@ -39,6 +45,27 @@ class Settings(BaseSettings):
     
     # Vector store
     chroma_persist_dir: str = "./chroma_db"
+    
+    # API Error Handling
+    retry_attempts: int = 3
+    retry_base_delay: float = 2.0  # seconds
+    circuit_breaker_threshold: int = 5  # failures before opening
+    circuit_breaker_timeout: int = 60  # seconds before half-open
+    enable_extractive_fallback: bool = True
+    
+    # Logging
+    log_level: str = "INFO"
+    log_api_failures: bool = True
+    log_file: str = "./logs/api_errors.log"
+    
+    # Reranking
+    enable_reranking: bool = True
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_batch_size: int = 32
+    
+    # MCP Server
+    mcp_server_name: str = "ultra-doc-intelligence"
+    mcp_server_version: str = "1.0.0"
     
     class Config:
         env_file = ".env"
