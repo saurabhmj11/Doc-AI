@@ -384,16 +384,16 @@ function App() {
                                     <input
                                         type="text"
                                         className="chat-input"
-                                        placeholder={documentId ? "Ask a question about your document..." : "Upload a document first..."}
+                                        placeholder={processedDocs.length > 0 ? "Ask a question about your documents..." : "Upload documents first..."}
                                         value={question}
                                         onChange={(e) => setQuestion(e.target.value)}
                                         onKeyPress={handleKeyPress}
-                                        disabled={!documentId || asking}
+                                        disabled={processedDocs.length === 0 || asking}
                                     />
                                     <button
                                         className="btn-send"
                                         onClick={handleAsk}
-                                        disabled={!documentId || !question.trim() || asking}
+                                        disabled={processedDocs.length === 0 || !question.trim() || asking}
                                     >
                                         {asking ? <span className="spinner"></span> : '➤'}
                                     </button>
@@ -408,7 +408,7 @@ function App() {
                                 <button
                                     className="btn btn-primary"
                                     onClick={handleExtract}
-                                    disabled={!documentId || extracting}
+                                    disabled={processedDocs.length === 0 || extracting}
                                     style={{ width: 'auto', marginTop: 0 }}
                                 >
                                     {extracting ? (
