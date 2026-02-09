@@ -61,17 +61,21 @@ For numbers, dates, and names - use exactly what's in the document."""
             self._embedding_model = get_embedding_model()
         return self._embedding_model
     
-    def ask(self, document_id: str, question: str) -> dict:
+    def ask(self, document_ids: list[str] | str, question: str) -> dict:
         """
-        Main entry point - ask a question about a doc.
+        Main entry point - ask a question about one or more docs.
         Returns answer with confidence score and source citations.
         """
+        # handle single doc ID for backward compatibility
+        if isinstance(document_ids, str):
+            document_ids = [document_ids]
+            
         # embed the question
         query_embedding = self.embedding_model.encode(question, convert_to_numpy=True)
         
-        # find similar chunks
-        chunks = self.vector_store.search(
-            document_id=document_id,
+        # find similar chunks across all documents (parallel search)
+        chunks = self.vector_store.search_parallel(
+            document_ids=document_ids,
             query_embedding=query_embedding.tolist(),
             top_k=settings.top_k_retrieval
         )
@@ -133,11 +137,12 @@ For numbers, dates, and names - use exactly what's in the document."""
         }
     
     def _build_context(self, chunks: list[dict]) -> str:
-        """Stitch chunks together into a context string"""
+        """Stitch chunks together into a context string with source attribution"""
         parts = []
         for i, chunk in enumerate(chunks, 1):
-            page = f" (Page {chunk['page']})" if chunk.get('page') else ""
-            parts.append(f"[Source {i}{page}]:\n{chunk['text']}")
+            filename = chunk.get('filename', 'Unknown Document')
+            page = f", Page {chunk['page']}" if chunk.get('page') else ""
+            parts.append(f"[Source {i} - {filename}{page}]:\n{chunk['text']}")
         return "\n\n".join(parts)
     
     def _generate_answer(self, question: str, context: str) -> str:
@@ -181,6 +186,7 @@ ANSWER:"""
             sources.append({
                 "text": text,
                 "page": chunk.get("page"),
+                "filename": chunk.get("filename"),
                 "chunk_id": chunk["chunk_id"],
                 "similarity_score": round(chunk.get("similarity_score", 0), 3)
             })

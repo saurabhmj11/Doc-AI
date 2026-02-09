@@ -140,23 +140,32 @@ async def upload_document(file: UploadFile = File(...)):
 @router.post("/ask", response_model=AskResponse)
 async def ask_question(request: AskRequest):
     """
-    Ask a question about an uploaded document.
+    Ask a question about one or more uploaded documents.
     
     Returns answer with confidence score, sources, and guardrail status.
     """
-    # Validate document exists
+    # Determine document IDs to search
+    doc_ids = request.document_ids
+    if not doc_ids and request.document_id:
+        doc_ids = [request.document_id]
+        
+    if not doc_ids:
+        raise HTTPException(status_code=400, detail="No document provided. Please upload a document first.")
+
+    # Validate documents exist
     vector_store = get_vector_store()
-    if not vector_store.document_exists(request.document_id):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Document {request.document_id} not found. Please upload a document first."
-        )
+    for did in doc_ids:
+        if not vector_store.document_exists(did):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Document {did} not found. Please upload a document first."
+            )
     
     try:
-        # Get answer from RAG pipeline
+        # Get answer from RAG pipeline (multi-doc supported)
         rag = get_rag_pipeline()
         result = rag.ask(
-            document_id=request.document_id,
+            document_ids=doc_ids,
             question=request.question
         )
         
@@ -164,6 +173,7 @@ async def ask_question(request: AskRequest):
         sources = [
             SourceChunk(
                 text=s["text"],
+                filename=s.get("filename"),
                 page=s.get("page"),
                 chunk_id=s["chunk_id"],
                 similarity_score=s["similarity_score"]

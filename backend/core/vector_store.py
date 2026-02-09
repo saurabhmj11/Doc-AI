@@ -130,6 +130,8 @@ class VectorStore:
             
             search_results.append({
                 "chunk_id": results["ids"][0][i],
+                "document_id": document_id,
+                "filename": self._document_metadata[document_id]["filename"],
                 "text": results["documents"][0][i],
                 "page": results["metadatas"][0][i].get("page"),
                 "chunk_index": results["metadatas"][0][i].get("chunk_index"),
@@ -137,6 +139,45 @@ class VectorStore:
             })
         
         return search_results
+    
+    def search_parallel(
+        self, 
+        document_ids: list[str], 
+        query_embedding: list[float], 
+        top_k: int = 5
+    ) -> list[dict]:
+        """
+        Search multiple documents in parallel using threads.
+        Merges and re-ranks results by similarity.
+        """
+        import concurrent.futures
+        
+        all_results = []
+        
+        # Define the work function
+        def _search_single(doc_id):
+            try:
+                if not self.document_exists(doc_id):
+                    return []
+                return self.search(doc_id, query_embedding, top_k)
+            except Exception as e:
+                print(f"Error searching doc {doc_id}: {e}")
+                return []
+
+        # Execute in parallel
+        # ChromaDB client is thread-safe for read operations
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(document_ids))) as executor:
+            future_to_doc = {executor.submit(_search_single, doc_id): doc_id for doc_id in document_ids}
+            for future in concurrent.futures.as_completed(future_to_doc):
+                results = future.result()
+                all_results.extend(results)
+        
+        # Sort combined results by similarity score (descending)
+        all_results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        
+        # Return top K from all docs combined (e.g. top 10 overall)
+        # Maybe allow more to give broad context? Let's say top_k * 2
+        return all_results[:top_k * 2]
     
     def get_document_metadata(self, document_id: str) -> Optional[dict]:
         """Get metadata for a document."""

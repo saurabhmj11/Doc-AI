@@ -7,9 +7,8 @@ const API_BASE = import.meta.env.PROD
 
 function App() {
     // State management
-    const [file, setFile] = useState(null)
-    const [documentId, setDocumentId] = useState(null)
-    const [documentInfo, setDocumentInfo] = useState(null)
+    const [files, setFiles] = useState([])
+    const [processedDocs, setProcessedDocs] = useState([])
     const [uploading, setUploading] = useState(false)
     const [messages, setMessages] = useState([])
     const [question, setQuestion] = useState('')
@@ -28,27 +27,24 @@ function App() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages])
 
-    // Handle file selection
+    // Handle multiple file selection
     const handleFileSelect = (e) => {
-        const selectedFile = e.target.files[0]
-        if (selectedFile) {
-            setFile(selectedFile)
-            setDocumentId(null)
-            setDocumentInfo(null)
+        const selectedFiles = Array.from(e.target.files)
+        if (selectedFiles.length > 0) {
+            setFiles(prev => [...prev, ...selectedFiles])
+            // Do not clear processedDocs to allow adding more
             setMessages([])
             setExtraction(null)
             setPipelineStage(null)
         }
     }
 
-    // Handle drag and drop
+    // Handle drag and drop multiple files
     const handleDrop = (e) => {
         e.preventDefault()
-        const droppedFile = e.dataTransfer.files[0]
-        if (droppedFile) {
-            setFile(droppedFile)
-            setDocumentId(null)
-            setDocumentInfo(null)
+        const droppedFiles = Array.from(e.dataTransfer.files)
+        if (droppedFiles.length > 0) {
+            setFiles(prev => [...prev, ...droppedFiles])
             setMessages([])
             setExtraction(null)
             setPipelineStage(null)
@@ -59,52 +55,62 @@ function App() {
         e.preventDefault()
     }
 
-    // Upload document with pipeline visualization
+    // Parallel Upload with pipeline visualization
     const handleUpload = async () => {
-        if (!file) return
+        if (files.length === 0) return
 
         setUploading(true)
         setShowArchitecture(false)
         setPipelineStage('parsing')
 
-        const formData = new FormData()
-        formData.append('file', file)
-
         try {
-            // Simulate pipeline stages for visualization
-            await new Promise(r => setTimeout(r, 800))
-            setPipelineStage('chunking')
-            await new Promise(r => setTimeout(r, 800))
-            setPipelineStage('embedding')
+            // Simulate pipeline startup
             await new Promise(r => setTimeout(r, 600))
-            setPipelineStage('indexing')
+            setPipelineStage('chunking')
 
-            const response = await fetch(`${API_BASE}/upload`, {
-                method: 'POST',
-                body: formData,
+            // Parallel Uploads using Promise.all
+            // This demonstrates parallel processing capability
+            const uploadPromises = files.map(async (file) => {
+                const formData = new FormData()
+                formData.append('file', file)
+
+                const response = await fetch(`${API_BASE}/upload`, {
+                    method: 'POST',
+                    body: formData,
+                })
+
+                if (!response.ok) {
+                    const error = await response.json()
+                    throw new Error(error.detail || `Upload failed for ${file.name}`)
+                }
+                return response.json()
             })
 
-            if (!response.ok) {
-                const error = await response.json()
-                throw new Error(error.detail || 'Upload failed')
-            }
+            // Wait for all to complete concurrently
+            setPipelineStage('embedding')
+            const results = await Promise.all(uploadPromises)
 
-            const data = await response.json()
+            setPipelineStage('indexing')
+            await new Promise(r => setTimeout(r, 600))
+
             setPipelineStage('complete')
-            await new Promise(r => setTimeout(r, 1500))
+            await new Promise(r => setTimeout(r, 1000))
             setPipelineStage(null)
-            setDocumentId(data.document_id)
-            setDocumentInfo(data)
+
+            // Add to processed list
+            setProcessedDocs(prev => [...prev, ...results])
+            setFiles([]) // Clear queue
+
             setMessages([{
                 type: 'assistant',
-                content: `Document "${data.filename}" processed successfully! Created ${data.chunks_created} searchable chunks. You can now ask questions about your document.`,
+                content: `Success! Processed ${results.length} new document(s). Total ${results.reduce((acc, d) => acc + d.chunks_created, 0)} chunks index. You can now ask questions across ALL ${processedDocs.length + results.length} documents.`,
                 timestamp: new Date()
             }])
         } catch (error) {
             setPipelineStage('error')
             setMessages([{
                 type: 'assistant',
-                content: `Error uploading document: ${error.message}`,
+                content: `Error uploading documents: ${error.message}`,
                 isError: true,
                 timestamp: new Date()
             }])
@@ -115,7 +121,7 @@ function App() {
 
     // Ask question with pipeline visualization
     const handleAsk = async () => {
-        if (!question.trim() || !documentId || asking) return
+        if (!question.trim() || processedDocs.length === 0 || asking) return
 
         const userMessage = {
             type: 'user',
@@ -135,11 +141,14 @@ function App() {
             await new Promise(r => setTimeout(r, 600))
             setPipelineStage('generating')
 
+            // Collect all document IDs
+            const docIds = processedDocs.map(d => d.document_id)
+
             const response = await fetch(`${API_BASE}/ask`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    document_id: documentId,
+                    document_ids: docIds,
                     question: currentQuestion
                 })
             })
@@ -185,10 +194,11 @@ function App() {
         }
     }
 
-    // Extract structured data with pipeline visualization
+    // Extract structured data with pipeline visualization (Last document only for now)
     const handleExtract = async () => {
-        if (!documentId || extracting) return
+        if (processedDocs.length === 0 || extracting) return
 
+        const targetDoc = processedDocs[processedDocs.length - 1]
         setExtracting(true)
         setShowArchitecture(false)
         setPipelineStage('analyzing')
@@ -202,7 +212,7 @@ function App() {
             const response = await fetch(`${API_BASE}/extract`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ document_id: documentId })
+                body: JSON.stringify({ document_id: targetDoc.document_id })
             })
 
             if (!response.ok) {
@@ -261,7 +271,7 @@ function App() {
                         </div>
 
                         <div
-                            className={`upload-area ${file ? 'has-file' : ''}`}
+                            className="upload-area"
                             onClick={() => fileInputRef.current?.click()}
                             onDrop={handleDrop}
                             onDragOver={handleDragOver}
@@ -269,59 +279,66 @@ function App() {
                             <input
                                 ref={fileInputRef}
                                 type="file"
+                                multiple
                                 accept=".pdf,.docx,.txt"
                                 onChange={handleFileSelect}
                                 style={{ display: 'none' }}
                             />
 
-                            {file ? (
-                                <>
-                                    <div className="upload-icon">{getFileIcon(file.name)}</div>
-                                    <div className="file-info">
-                                        <span className="file-icon">{getFileIcon(file.name)}</span>
-                                        <div className="file-details">
-                                            <div className="file-name">{file.name}</div>
-                                            <div className="file-meta">{formatFileSize(file.size)}</div>
-                                        </div>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="upload-icon">📁</div>
-                                    <p className="upload-text">
-                                        <strong>Click to upload</strong> or drag and drop<br />
-                                        PDF, DOCX, or TXT (max 10MB)
-                                    </p>
-                                </>
-                            )}
+                            <div className="upload-icon">📁</div>
+                            <p className="upload-text">
+                                <strong>Click to add files</strong> or drag and drop<br />
+                                Upload multiple PDF, DOCX, TXT
+                            </p>
                         </div>
+
+                        {/* File List */}
+                        {(files.length > 0 || processedDocs.length > 0) && (
+                            <div className="file-list" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {/* Processed Docs */}
+                                {processedDocs.map(doc => (
+                                    <div key={doc.document_id} className="file-item" style={{ display: 'flex', alignItems: 'center', padding: '8px', background: 'rgba(52, 211, 153, 0.1)', borderRadius: '6px', border: '1px solid rgba(52, 211, 153, 0.3)' }}>
+                                        <span style={{ marginRight: '8px' }}>✅</span>
+                                        <span className="file-name" style={{ fontSize: '0.9rem', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.filename}</span>
+                                        <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{doc.chunks_created} chunks</span>
+                                    </div>
+                                ))}
+
+                                {/* Pending Files */}
+                                {files.map((f, i) => (
+                                    <div key={i} className="file-item" style={{ display: 'flex', alignItems: 'center', padding: '8px', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '6px' }}>
+                                        <span style={{ marginRight: '8px' }}>📄</span>
+                                        <span className="file-name" style={{ fontSize: '0.9rem', flex: 1 }}>{f.name}</span>
+                                        <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{(f.size / 1024).toFixed(0)} KB</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
                         <button
                             className="btn btn-primary"
                             onClick={handleUpload}
-                            disabled={!file || uploading || documentId}
+                            disabled={files.length === 0 || uploading}
+                            style={{ marginTop: '1rem' }}
                         >
                             {uploading ? (
                                 <>
                                     <span className="spinner"></span>
-                                    Processing...
+                                    Processing {files.length} files...
                                 </>
-                            ) : documentId ? (
-                                '✓ Document Ready'
                             ) : (
-                                '🚀 Upload & Process'
+                                '🚀 Process All Files'
                             )}
                         </button>
 
-                        {documentInfo && (
+                        {processedDocs.length > 0 && (
                             <div className="document-status">
                                 <div className="status-header">
                                     <span>✓</span>
-                                    Document Processed
+                                    {processedDocs.length} Documents Ready
                                 </div>
                                 <div className="status-details">
-                                    <strong>{documentInfo.chunks_created}</strong> chunks created<br />
-                                    ID: <code style={{ fontSize: '0.75rem', opacity: 0.7 }}>{documentInfo.document_id.slice(0, 12)}...</code>
+                                    You can now ask questions across all uploaded documents.
                                 </div>
                             </div>
                         )}

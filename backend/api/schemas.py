@@ -20,14 +20,16 @@ class DocumentUploadResponse(BaseModel):
 # ============ Question Answering ============
 
 class AskRequest(BaseModel):
-    """Request to ask a question about a document."""
-    document_id: str
+    """Request to ask a question about one or more documents."""
+    document_id: Optional[str] = None
+    document_ids: Optional[list[str]] = None
     question: str = Field(..., min_length=3, max_length=1000)
 
 
 class SourceChunk(BaseModel):
     """A source chunk that supports an answer."""
     text: str
+    filename: Optional[str] = None
     page: Optional[int] = None
     chunk_id: str
     similarity_score: float
