@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     log_file: str = "./logs/api_errors.log"
     
     # Reranking
-    enable_reranking: bool = True
+    enable_reranking: bool = False
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_batch_size: int = 32
     
