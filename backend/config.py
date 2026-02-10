@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     
     # API Keys
     gemini_api_key: str = ""
+    gemini_model: str = "models/gemini-flash-latest"
     
     # LLM Configuration
     llm_mode: str = "online"  # 'online' (Gemini) or 'offline' (Ollama)

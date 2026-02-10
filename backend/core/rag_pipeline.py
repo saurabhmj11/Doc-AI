@@ -70,9 +70,9 @@ For numbers, dates, and names - use exactly what's in the document."""
             # set up gemini if we have a key
             if settings.gemini_api_key:
                 genai.configure(api_key=settings.gemini_api_key)
-                self.llm = genai.GenerativeModel('gemini-1.5-flash')
+                self.llm = genai.GenerativeModel(settings.gemini_model)
                 self.circuit_breaker = get_gemini_circuit_breaker()
-                logger.info("RAG Pipeline initialized in ONLINE mode (Gemini)")
+                logger.info(f"RAG Pipeline initialized in ONLINE mode ({settings.gemini_model})")
             else:
                 self.llm = None
                 self.circuit_breaker = None
@@ -259,8 +259,8 @@ Answer:"""
             # Wrapper function for circuit breaker and retry
             @api_retry(api_name="Gemini", max_attempts=settings.retry_attempts)
             def _call_gemini():
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content(prompt)
+                # Use initialized model instance
+                response = self.llm.generate_content(prompt)
                 
                 if not response.text:
                     logger.warning("Gemini response was blocked or safety filtered")
@@ -293,6 +293,7 @@ Answer:"""
     
     def _extractive_fallback(self, question: str, context: str) -> str:
         """Enhanced extractive fallback - return most relevant chunk with context."""
+        logger.warning(f"FALLBACK TRIGGERED | question={question[:120]}")
         logger.info("Using extractive fallback method")
         
         if not context:
