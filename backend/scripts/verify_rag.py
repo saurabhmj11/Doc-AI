@@ -1,119 +1,62 @@
-
 import sys
 import os
 import asyncio
 from pathlib import Path
 
-
 # Add backend to python path
 sys.path.append(os.getcwd())
 sys.path.append(os.path.join(os.getcwd(), 'backend'))
-current_dir = Path(__file__).resolve().parent
-# scripts/ -> backend/ -> root
-project_root = current_dir.parent.parent
-sys.path.append(str(project_root))
-sys.path.append(str(project_root / "backend"))
 
 from dotenv import load_dotenv
 load_dotenv("backend/.env")
 
 from backend.config import get_settings
-from backend.core.document_processor import DocumentProcessor
 from backend.core.rag_pipeline import RAGPipeline
-from backend.core.vector_store import get_vector_store
+from backend.core.document_processor import DocumentChunk
 
 async def main():
-    print("Initializing components...")
+    print("Initializing RAG Pipeline...")
+    rag = RAGPipeline()
     
+    # --- TEST LLM CONNECTION DIRECTLY ---
+    print("\n--- TESTING LLM CONNECTION ---")
     try:
-        processor = DocumentProcessor()
-        rag = RAGPipeline()
-        vector_store = get_vector_store()
+        response = rag.llm.generate_content("Hello, can you hear me?")
+        print(f"LLM Response: {response.text}")
+        print("--- LLM CONNECTION OK ---\n")
     except Exception as e:
-        print(f"Error initializing: {e}")
+        print(f"--- LLM CONNECTION FAILED: {e} ---")
         return
     
-    # Files to process
-    files = [
-        "sample_docs/BOL53657_billoflading.pdf",
-    ]
+    doc_id = "test_doc_manual"
+    print("Creating manual chunk...")
+    chunk = DocumentChunk(
+        chunk_id="1", 
+        document_id=doc_id, 
+        text="The shipper is Global Electronics Inc. Located at 123 Tech Park.", 
+        page=1, 
+        chunk_index=0
+    )
     
-    doc_ids = []
-
-    for fpath in files:
-        full_path = Path(fpath).resolve()
-        if not full_path.exists():
-            print(f"Skipping {fpath} (not found)")
-            continue
-            
-        print(f"\nProcessing {full_path.name}...")
-        try:
-            # Note: DocumentProcessor uses model_loader which uses "models/gemini-embedding-001" now
-            doc_id, chunks = processor.process_file(str(full_path), "pdf")
-            print(f" - Generated {len(chunks)} chunks.")
-            if chunks and chunks[0].embedding:
-                print(f" - Sample embedding: {chunks[0].embedding[:5]}...")
-            else:
-                print(" - WARNING: Chunks have no embeddings or are empty.")
-            
-            # Add to Vector Store
-            vector_store.add_document(
-                document_id=doc_id,
-                chunks=chunks,
-                filename=full_path.name,
-                file_type="pdf",
-                file_path=str(full_path)
-            )
-            print(f" - Added to Vector Store as {doc_id}")
-            doc_ids.append(doc_id)
-            
-        except Exception as e:
-            print(f"Error processing {fpath}: {e}")
-            import traceback
-            traceback.print_exc()
-
-    if not doc_ids:
-        print("No documents processed. Exiting.")
-        return
-
-    # Ask Question
-    question = "Who is the shipper?"
-
-    if doc_ids:
-        # Debug Embeddings
-        # Debug Embeddings
-        import numpy as np
-        emb = chunks[0].embedding
-        norm = np.linalg.norm(emb)
-        print(f" - Embedding Norm: {norm:.4f}")
-        
-        # Debug Search Directly
-        print("\n--- Debug Search ---")
-        q_emb = rag.embedding_model.encode(question, convert_to_numpy=True)
-        results = vector_store.search(doc_ids[0], q_emb, top_k=3)
-        print(f"Direct Search Results: {results}")
-        if results:
-             print(f"Top 3 Scores: {[r['similarity_score'] for r in results]}")
-        else:
-             print("Direct Search returned NO results.")
-
-    # Ask Question
-    question = "Who is the shipper?"
-    print(f"\n\nAsking: '{question}' across {len(doc_ids)} documents...")
+    print("Embedding chunk...")
+    # chunks = rag.embedding_model.embed_chunks([chunk])
+    # Fix: use encode directly
+    embeddings = rag.embedding_model.encode([chunk.text], convert_to_numpy=True)
+    chunk.embedding = embeddings[0].tolist()
+    chunks = [chunk]
     
-    try:
-        # Use our updated RAG pipeline
-        result = rag.ask(document_ids=doc_ids, question=question)
-        
-        print("\n--- RAG Result ---")
-        print(f"Answer: {result['answer']}")
-        print(f"Confidence: {result['confidence']*100:.1f}% ({result['confidence_level']})")
-        print(f"Status: {result.get('guardrail_status', 'unknown')}")
-        
-    except Exception as e:
-        print(f"Error asking question: {e}")
-        import traceback
-        traceback.print_exc()
+    print("Adding to Vector Store...")
+    from backend.core.vector_store import get_vector_store
+    vs = get_vector_store()
+    vs.add_document(doc_id, chunks, "test.txt", "txt", "test.txt")
+    
+    print("Asking 'Who is the shipper?'...")
+    res = rag.ask([doc_id], "Who is the shipper?")
+    
+    print("\n--- RESULT ---")
+    print("Answer:", res['answer'])
+    print("Confidence:", res['confidence'])
+    print("Status:", res.get('guardrail_status'))
 
 if __name__ == "__main__":
     asyncio.run(main())

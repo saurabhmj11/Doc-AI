@@ -260,7 +260,9 @@ Answer:"""
             @api_retry(api_name="Gemini", max_attempts=settings.retry_attempts)
             def _call_gemini():
                 # Use initialized model instance
+                print("\n--- DEBUG: CALLING LLM ---")
                 response = self.llm.generate_content(prompt)
+                print(f"--- DEBUG: RAW RESPONSE: {response.text[:100]}... ---")
                 
                 if not response.text:
                     logger.warning("Gemini response was blocked or safety filtered")
@@ -276,14 +278,20 @@ Answer:"""
         except APIError as e:
             # Circuit breaker is open
             logger.warning(f"Gemini API circuit breaker open: {str(e)}")
+            if "429" in str(e) or "ResourceExhausted" in str(e):
+                return "⚠️ API Rate Limit Exceeded. Please wait a minute before asking again. (Gemini Free Tier Quota)"
+            
             if settings.enable_extractive_fallback:
                 logger.info("Using extractive fallback due to circuit breaker")
                 return self._extractive_fallback(question, context)
-            return "Service temporarily unavailable due to high error rate. Please try again in a moment."
+            return "Service temporarily unavailable. Please try again in a moment."
             
         except Exception as e:
             # All retries exhausted or other error
             logger.error(f"Gemini API error after retries: {type(e).__name__}: {str(e)}", exc_info=True)
+            
+            if "429" in str(e) or "quota" in str(e).lower():
+                 return "⚠️ API Rate Limit Exceeded. Please wait a minute before asking again. (Gemini Free Tier Quota)"
             
             if settings.enable_extractive_fallback:
                 logger.info("Using extractive fallback due to Gemini API error")
