@@ -17,6 +17,8 @@ from core.model_loader import get_embedding_model
 from core.vector_store import get_vector_store
 from core.confidence_scorer import get_confidence_scorer
 from core.guardrails import get_guardrails, GuardrailResult
+from core.query_planner import QueryPlanner, QueryIntent
+from core.structured_extractor import get_structured_extractor
 from core.error_handling import (
     get_gemini_circuit_breaker,
     get_ollama_circuit_breaker,
@@ -55,6 +57,10 @@ For numbers, dates, and names - use exactly what's in the document."""
         self.vector_store = get_vector_store()
         self.confidence_scorer = get_confidence_scorer()
         self.guardrails = get_guardrails()
+        
+        # Agentic Components (RAG 2.0)
+        self.planner = QueryPlanner()
+        self.extractor = get_structured_extractor()
         
         # set up LLM based on mode
         self.llm_mode = settings.llm_mode
@@ -141,11 +147,27 @@ For numbers, dates, and names - use exactly what's in the document."""
         top_chunks = chunks[:settings.top_k_rerank]
         context = self._build_context(top_chunks)
         
+        # --- AGENTIC RAG LAYER ---
+        # 1. Plan Query
+        plan = self.planner.plan(question)
+        logger.info(f"Query Plan: {plan.intent} | Entities: {plan.target_entities}")
+        
+        # 2. Dual Retrieval & Grounding Graph
+        grounding_graph = {}
+        if plan.intent in [QueryIntent.ENTITY_LOOKUP, QueryIntent.COMPARISON]:
+            # Extract structured data from the retrieved context
+            # We use the text from top chunks to form a temporary "document" for extraction
+            logger.info("Executing Structured Extraction for Grounding...")
+            shipment_data, conf = self.extractor.extract(context)
+            if conf > 0.5:
+                grounding_graph = shipment_data.model_dump(exclude_none=True)
+                logger.info(f"Grounding Graph built with {len(grounding_graph)} facts")
+        
         # ask the LLM
         if self.llm_mode == "offline":
             answer = self._generate_answer_ollama(question, context)
         else:
-            answer = self._generate_answer(question, context)
+            answer = self._generate_answer(question, context, grounding_graph)
         
         # score how confident we are
         confidence, breakdown = self.confidence_scorer.compute_confidence(
@@ -234,7 +256,7 @@ Answer:"""
                 return self._extractive_fallback(question, context)
             return "An error occurred while processing your question. Please try again."
 
-    def _generate_answer(self, question: str, context: str) -> str:
+    def _generate_answer(self, question: str, context: str, grounding_graph: dict = None) -> str:
         """Call Gemini API with retry logic, circuit breaker, and fallback."""
         if not self.llm:
             logger.warning("Gemini API key not configured")
@@ -243,13 +265,20 @@ Answer:"""
             return "Service configuration error. Please contact support."
         
         # Improved Prompt
+        # Improved Prompt with Grounding Graph
+        graph_text = ""
+        if grounding_graph:
+            graph_text = "\nGROUNDING GRAPH (Verified Facts):\n" + "\n".join([f"- {k}: {v}" for k, v in grounding_graph.items()])
+        
         prompt = f"""You are an AI logistics assistant analyzing documents.
-Strictly answer based ONLY on the provided Context below.
+Strictly answer based ONLY on the provided Context and Grounding Graph below.
 If the answer is not in the context, say "I cannot find the answer in the document."
 Do NOT repeat the entire document. Be concise.
 
 Context:
 {context}
+
+{graph_text}
 
 User Question: {question}
 
