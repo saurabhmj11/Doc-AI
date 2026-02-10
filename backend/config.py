@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Server settings
     host: str = "0.0.0.0"
     port: int = 8000
-    debug: bool = True
+    debug: bool = False
     
     # Document processing
     max_file_size_mb: int = 10
@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     mcp_server_version: str = "1.0.0"
     
     class Config:
-        env_file = ".env"
+        env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
         env_file_encoding = "utf-8"
 
 

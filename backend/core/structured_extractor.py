@@ -92,9 +92,7 @@ Return ONLY valid JSON (no markdown, no explanation):"""
         Returns:
             Tuple of (ShipmentData, confidence_score)
         """
-        Returns:
-            Tuple of (ShipmentData, confidence_score)
-        """
+
         if not self.llm:
             logger.warning("LLM not available, using regex fallback extraction")
             return self._fallback_extraction(document_text)
@@ -243,9 +241,9 @@ Return ONLY valid JSON (no markdown, no explanation):"""
         # Shipment ID patterns - more comprehensive
         shipment_id_patterns = [
             r'(?:BOL|Bill of Lading|B/L)[#:\s]+([A-Z0-9-]+)',
-            r'(?:Load|Shipment|Order)[#:\s]+([A-Z0-9-]+)',
-            r'(?:PRO|Reference)[#:\s]+([A-Z0-9-]+)',
-            r'(?:Tracking|Confirmation)[#:\s]+([A-Z0-9-]+)'
+            r'(?:Load|Shipment|Order)(?:\s+ID)?[#:\s]+([A-Z0-9-]+)',
+            r'(?:PRO|Reference)(?:\s+ID)?[#:\s]+([A-Z0-9-]+)',
+            r'(?:Tracking|Confirmation)(?:\s+ID)?[#:\s]+([A-Z0-9-]+)'
         ]
         for pattern in shipment_id_patterns:
             match = re.search(pattern, document_text, re.IGNORECASE)
@@ -256,35 +254,42 @@ Return ONLY valid JSON (no markdown, no explanation):"""
                 break
         
         # Shipper/Consignee patterns
+        # Handle merged headers like "Shipper Consignee" common in bad PDF extractions
         shipper_patterns = [
-            r'Shipper[:\s]+([^\n]{10,100})',
-            r'From[:\s]+([^\n]{10,100})',
+            r'Shipper(?:\s+Consignee)?[:\s]+([^\n]{10,100})',
+            r'Ack\.\s+Shipper[:\s]+([^\n]{10,100})',
+            r'From(?:\s+To)?[:\s]+([^\n]{10,100})',
             r'Origin[:\s]+([^\n]{10,100})'
         ]
         for pattern in shipper_patterns:
             match = re.search(pattern, document_text, re.IGNORECASE)
-            if match:
-                shipment.shipper = match.group(1).strip()
+            if match and "Consignee" not in match.group(1)[:10]: # Avoid capturing the header itself if regex failed
+                val = match.group(1).strip()
+                # Cleanup common artifacts
+                val = re.sub(r'^\d+\.\s*', '', val) # Remove leading "1. "
+                shipment.shipper = val
                 extracted_fields.append('shipper')
                 logger.debug(f"Extracted shipper: {shipment.shipper[:50]}...")
                 break
         
         consignee_patterns = [
-            r'Consignee[:\s]+([^\n]{10,100})',
+            r'(?:Shipper\s+)?Consignee[:\s]+([^\n]{10,100})',
             r'To[:\s]+([^\n]{10,100})',
             r'Destination[:\s]+([^\n]{10,100})'
         ]
         for pattern in consignee_patterns:
             match = re.search(pattern, document_text, re.IGNORECASE)
             if match:
-                shipment.consignee = match.group(1).strip()
+                val = match.group(1).strip()
+                val = re.sub(r'^\d+\.\s*', '', val)
+                shipment.consignee = val
                 extracted_fields.append('consignee')
                 logger.debug(f"Extracted consignee: {shipment.consignee[:50]}...")
                 break
         
         # Rate patterns - improved
         rate_patterns = [
-            r'(?:Rate|Total|Amount)[:\s]*\$?\s*([\d,]+\.?\d*)',
+            r'(?:Rate|Total|Amount|Freight Charges)[:\s]*\$?\s*([\d,]+\.?\d*)',
             r'\$\s*([\d,]+\.\d{2})',
             r'USD[:\s]*([\d,]+\.?\d*)'
         ]

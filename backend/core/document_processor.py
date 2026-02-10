@@ -82,6 +82,8 @@ class DocumentProcessor:
         with fitz.open(file_path) as doc:
             for i, page in enumerate(doc, 1):
                 text = page.get_text("text")
+                # Normalize merged headers common in BOL docs
+                text = text.replace("Shipper Consignee", "Shipper:\n")
                 if text.strip():
                     pages.append((i, text))
         return pages
