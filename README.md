@@ -12,33 +12,6 @@ Upload a Bill of Lading, Rate Confirmation, or similar doc and ask questions abo
 - **Confidence scores** - Multi-signal scoring to flag uncertain answers
 - **Guardrails** - Refuses to answer if it's not confident
 
-## Setup & Configuration
-
-### 1. Get a Gemini API Key
-To use the RAG pipeline, you need a Google Gemini API key:
-1.  Go to [Google AI Studio](https://aistudio.google.com/).
-2.  Click **"Get API key"**.
-3.  Create a key in a new or existing Google Cloud project.
-4.  Copy the API key string.
-
-### 2. Enable the API
-Ensure the Generative Language API is enabled for your project:
-1.  Go to the [Google Cloud Console](https://console.cloud.google.com/).
-2.  Select the project associated with your API key.
-3.  Navigate to **APIs & Services > Library**.
-4.  Search for **"Generative Language API"**.
-5.  Click **Enable**.
-
-### 3. Configure Environment
-Create a `.env` file in the `backend/` directory:
-
-```bash
-GEMINI_API_KEY=your_api_key_here
-# Optional settings
-GEMINI_MODEL=models/gemini-flash-latest
-LOG_LEVEL=INFO
-```
-
 ## Quick start
 
 ```bash

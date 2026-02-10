@@ -74,9 +74,9 @@ Return ONLY valid JSON (no markdown, no explanation):"""
             # Configure Gemini
             if settings.gemini_api_key:
                 genai.configure(api_key=settings.gemini_api_key)
-                self.llm = genai.GenerativeModel(settings.gemini_model)
+                self.llm = genai.GenerativeModel('gemini-1.5-flash')
                 self.circuit_breaker = get_gemini_circuit_breaker()
-                logger.info(f"Structured Extractor initialized in ONLINE mode ({settings.gemini_model})")
+                logger.info("Structured Extractor initialized in ONLINE mode (Gemini)")
             else:
                 self.llm = None
                 self.circuit_breaker = None
