@@ -6,6 +6,8 @@ from pathlib import Path
 
 
 # Add backend to python path
+sys.path.append(os.getcwd())
+sys.path.append(os.path.join(os.getcwd(), 'backend'))
 current_dir = Path(__file__).resolve().parent
 # scripts/ -> backend/ -> root
 project_root = current_dir.parent.parent
