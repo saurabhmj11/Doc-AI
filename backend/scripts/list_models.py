@@ -3,7 +3,9 @@ import os
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+# Look for .env in backend root (parent of scripts/)
+env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+load_dotenv(env_path)
 
 api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:

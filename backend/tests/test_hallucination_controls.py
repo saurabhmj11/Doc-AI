@@ -5,8 +5,11 @@ import asyncio
 from pathlib import Path
 
 # Add backend to python path
-sys.path.append(os.getcwd())
-sys.path.append(os.path.join(os.getcwd(), 'backend'))
+current_dir = Path(__file__).resolve().parent
+# tests/ -> backend/ -> root
+project_root = current_dir.parent.parent
+sys.path.append(str(project_root))
+sys.path.append(str(project_root / "backend"))
 
 from dotenv import load_dotenv
 load_dotenv("backend/.env")
