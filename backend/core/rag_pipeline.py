@@ -300,13 +300,67 @@ Answer:"""
             return "An error occurred while processing your question. Please try again."
     
     def _extractive_fallback(self, question: str, context: str) -> str:
-        """Enhanced extractive fallback - return most relevant chunk with context."""
+        """Enhanced extractive fallback - uses structured extractor + regex for specific fields."""
         logger.warning(f"FALLBACK TRIGGERED | question={question[:120]}")
         logger.info("Using extractive fallback method")
         
         if not context:
             return "I couldn't find relevant information in the document to answer your question."
+            
+        # 1. Try structured extraction for specific entity questions
+        # This bypasses the LLM completely for common fields
+        try:
+            from core.structured_extractor import get_structured_extractor
+            extractor = get_structured_extractor()
+            
+            # Map keywords to fields
+            q_lower = question.lower()
+            field_map = {
+                "shipper": "shipper",
+                "sender": "shipper",
+                "from": "shipper",
+                "consignee": "consignee",
+                "receiver": "consignee",
+                "destination": "consignee",
+                "to": "consignee",
+                "rate": "rate",
+                "cost": "rate", 
+                "price": "rate",
+                "amount": "rate",
+                "total": "rate",
+                "shipment id": "shipment_id",
+                "load id": "shipment_id",
+                "bol": "shipment_id",
+                "tracking": "shipment_id",
+                "reference": "shipment_id",
+                "pickup": "pickup_datetime",
+                "delivery": "delivery_datetime",
+                "carrier": "carrier_name",
+                "trucking": "carrier_name",
+                "weight": "weight",
+                "equipment": "equipment_type",
+                "trailer": "equipment_type"
+            }
+            
+            target_field = None
+            for key, field in field_map.items():
+                if key in q_lower:
+                    target_field = field
+                    break
+            
+            if target_field:
+                logger.debug(f"Attempting structured extraction for field: {target_field}")
+                # Use offline extraction (Regex only) to avoid LLM issues
+                data, confidence = extractor.extract_offline(context)
+                
+                value = getattr(data, target_field, None)
+                if value:
+                    return f"Based on the document, the {target_field.replace('_', ' ')} is **{value}**.\n\n(Source: extracted from document text)"
+                    
+        except Exception as e:
+            logger.warning(f"Structured fallback failed: {e}")
         
+        # 2. Standard fallback (chunk excerpt)
         # Split context by sources
         parts = context.split("[Source")
         
@@ -331,7 +385,7 @@ Answer:"""
 
 {text}
 
-(Note: This is a direct excerpt from the document. For a more detailed answer, please try again later.)"""
+(Note: This is a direct excerpt from the document. For a more detailed answer, please try again when the API quota resets.)"""
         
         # Fallback if parsing fails
         return "I found some information but couldn't process it properly. Please try again or rephrase your question."

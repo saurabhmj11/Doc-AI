@@ -92,12 +92,26 @@ Return ONLY valid JSON (no markdown, no explanation):"""
         Returns:
             Tuple of (ShipmentData, confidence_score)
         """
+        Returns:
+            Tuple of (ShipmentData, confidence_score)
+        """
         if not self.llm:
             logger.warning("LLM not available, using regex fallback extraction")
             return self._fallback_extraction(document_text)
         
         prompt = self.EXTRACTION_PROMPT.format(document_text=document_text[:8000])  # Limit context
         
+        return self._extract_with_llm(prompt, document_text)
+
+    def extract_offline(self, document_text: str) -> tuple[ShipmentData, float]:
+        """
+        Extract data using ONLY regex patterns (no LLM).
+        Useful for fallback scenarios or when offline.
+        """
+        return self._fallback_extraction(document_text)
+
+    def _extract_with_llm(self, prompt: str, document_text: str) -> tuple[ShipmentData, float]:
+        """Internal method to handle LLM extraction logic."""
         try:
             # Wrapper for circuit breaker and retry
             @api_retry(api_name=f"{self.llm_mode.upper()}_Extraction", max_attempts=settings.retry_attempts)
