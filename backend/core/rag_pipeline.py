@@ -96,7 +96,10 @@ class RAGPipeline:
             return {
                 "answer": retrieval_check.message,
                 "confidence": 0.0,
-                "sources": []
+                "confidence_level": "low",
+                "sources": [],
+                "guardrail_status": "refused",
+                "guardrail_message": retrieval_check.message
             }
 
         # Rerank if enabled
@@ -116,7 +119,10 @@ class RAGPipeline:
             return {
                 "answer": fast_answer,
                 "confidence": 0.95,
-                "sources": self._format_sources(top_chunks)
+                "confidence_level": "high",
+                "sources": self._format_sources(top_chunks),
+                "guardrail_status": "allowed",
+                "guardrail_message": None
             }
 
         # =====================================================
@@ -132,10 +138,15 @@ class RAGPipeline:
             context
         )
 
+        confidence_level = self.confidence_scorer.get_confidence_level(confidence)
+
         return {
             "answer": answer,
             "confidence": confidence,
-            "sources": self._format_sources(top_chunks)
+            "confidence_level": confidence_level,
+            "sources": self._format_sources(top_chunks),
+            "guardrail_status": "allowed",
+            "guardrail_message": None
         }
 
     # =====================================================
