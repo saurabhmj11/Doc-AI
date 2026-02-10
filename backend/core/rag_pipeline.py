@@ -274,6 +274,7 @@ Question: {question}
                 "text": text,
                 "page": chunk.get("page"),
                 "filename": chunk.get("filename"),
+                "chunk_id": chunk.get("chunk_id"),
                 "similarity_score": round(chunk.get("similarity_score", 0), 3)
             })
 
