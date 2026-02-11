@@ -57,6 +57,35 @@ function App() {
         e.preventDefault()
     }
 
+    // Remove pending file
+    const handleRemoveFile = (index) => {
+        setFiles(prev => prev.filter((_, i) => i !== index))
+    }
+
+    // Delete processed document
+    const handleDeleteDocument = async (documentId) => {
+        try {
+            await fetch(`${API_BASE}/documents/${documentId}`, {
+                method: 'DELETE'
+            })
+            setProcessedDocs(prev => prev.filter(d => d.document_id !== documentId))
+
+            // Clear extraction if deleted doc was target
+            if (extraction && extraction.document_id === documentId) {
+                setExtraction(null)
+            }
+
+            setMessages(prev => [...prev, {
+                type: 'assistant',
+                content: 'Document removed.',
+                timestamp: new Date()
+            }])
+
+        } catch (error) {
+            console.error('Error deleting document:', error)
+        }
+    }
+
     // Parallel Upload with pipeline visualization
     const handleUpload = async () => {
         if (files.length === 0) return
@@ -331,7 +360,14 @@ function App() {
                                     <div key={doc.document_id} className="file-item" style={{ display: 'flex', alignItems: 'center', padding: '8px', background: 'rgba(52, 211, 153, 0.1)', borderRadius: '6px', border: '1px solid rgba(52, 211, 153, 0.3)' }}>
                                         <span style={{ marginRight: '8px' }}>✅</span>
                                         <span className="file-name" style={{ fontSize: '0.9rem', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.filename}</span>
-                                        <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{doc.chunks_created} chunks</span>
+                                        <span style={{ fontSize: '0.75rem', opacity: 0.7, marginRight: '8px' }}>{doc.chunks_created} chunks</span>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteDocument(doc.document_id); }}
+                                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 4px', fontSize: '1.2rem', lineHeight: 1 }}
+                                            title="Remove document"
+                                        >
+                                            ×
+                                        </button>
                                     </div>
                                 ))}
 
@@ -340,7 +376,14 @@ function App() {
                                     <div key={i} className="file-item" style={{ display: 'flex', alignItems: 'center', padding: '8px', background: 'rgba(255, 255, 255, 0.05)', borderRadius: '6px' }}>
                                         <span style={{ marginRight: '8px' }}>📄</span>
                                         <span className="file-name" style={{ fontSize: '0.9rem', flex: 1 }}>{f.name}</span>
-                                        <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{(f.size / 1024).toFixed(0)} KB</span>
+                                        <span style={{ fontSize: '0.75rem', opacity: 0.7, marginRight: '8px' }}>{(f.size / 1024).toFixed(0)} KB</span>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleRemoveFile(i); }}
+                                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 4px', fontSize: '1.2rem', lineHeight: 1 }}
+                                            title="Remove file"
+                                        >
+                                            ×
+                                        </button>
                                     </div>
                                 ))}
                             </div>
