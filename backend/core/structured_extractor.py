@@ -240,48 +240,56 @@ Return ONLY valid JSON (no markdown, no explanation):"""
         
         # Shipment ID patterns - more comprehensive
         shipment_id_patterns = [
+            r'(?:Reference|Ref|Order|Load)(?:\s+ID|#)?[:\s\n]+([A-Z0-9-]{4,20})\b',
+            r'\b(LD\d{4,10})\b', # Specific format if known
             r'(?:BOL|Bill of Lading|B/L)[#:\s]+([A-Z0-9-]+)',
-            r'(?:Load|Shipment|Order)(?:\s+ID)?[#:\s]+([A-Z0-9-]+)',
-            r'(?:PRO|Reference)(?:\s+ID)?[#:\s]+([A-Z0-9-]+)',
-            r'(?:Tracking|Confirmation)(?:\s+ID)?[#:\s]+([A-Z0-9-]+)'
         ]
         for pattern in shipment_id_patterns:
-            match = re.search(pattern, document_text, re.IGNORECASE)
+            match = re.search(pattern, document_text, re.IGNORECASE | re.MULTILINE)
             if match:
-                shipment.shipment_id = match.group(1)
+                shipment.shipment_id = match.group(1).strip()
                 extracted_fields.append('shipment_id')
                 logger.debug(f"Extracted shipment_id: {shipment.shipment_id}")
                 break
         
         # Shipper/Consignee patterns
         # Handle merged headers like "Shipper Consignee" common in bad PDF extractions
+        # Shipper patterns
         shipper_patterns = [
-            r'Shipper(?:\s+Consignee)?[:\s]+([^\n]{10,100})',
+            # Strict Pickup block looking for name after potential table headers
+            r'Pickup\s*\n(?:^\s*\d+\s*$\n)?(?:^S\.No.*\n)?(?:^Commodity.*\n)?(?:^Weight.*\n)?(?:^Quantity.*\n)?(?:^Shipping Date.*\n)?\s*(?!(?:S\.No|Commodity|Weight|Quantity|Shipping Date|Date/Time))([A-Za-z][^\n]{3,50})\n',
+            r'Shipper\s*:\s*([^\n]{5,100})', # Strict colon
             r'Ack\.\s+Shipper[:\s]+([^\n]{10,100})',
-            r'From(?:\s+To)?[:\s]+([^\n]{10,100})',
             r'Origin[:\s]+([^\n]{10,100})'
         ]
         for pattern in shipper_patterns:
-            match = re.search(pattern, document_text, re.IGNORECASE)
-            if match and "Consignee" not in match.group(1)[:10]: # Avoid capturing the header itself if regex failed
+            match = re.search(pattern, document_text, re.IGNORECASE | re.MULTILINE)
+            if match:
                 val = match.group(1).strip()
                 # Cleanup common artifacts
+                if "Consignee" in val[:15] or "location" in val.lower(): 
+                    continue
                 val = re.sub(r'^\d+\.\s*', '', val) # Remove leading "1. "
                 shipment.shipper = val
                 extracted_fields.append('shipper')
                 logger.debug(f"Extracted shipper: {shipment.shipper[:50]}...")
                 break
         
+        # Consignee patterns
         consignee_patterns = [
-            r'(?:Shipper\s+)?Consignee[:\s]+([^\n]{10,100})',
-            r'To[:\s]+([^\n]{10,100})',
-            r'Destination[:\s]+([^\n]{10,100})'
+            # Strict Drop/Delivery block
+            r'(?:Drop|Delivery)\s*\n(?:^\s*\d+\s*$\n)?(?:^S\.No.*\n)?(?:^Commodity.*\n)?(?:^Weight.*\n)?(?:^Quantity.*\n)?(?:^Delivery Date.*\n)?\s*(?!(?:S\.No|Commodity|Weight|Quantity|Delivery Date|Date/Time|Description))([A-Za-z][^\n]{3,50})\n',
+            r'Consignee\s*:\s*([^\n]{5,100})', # Strict colon
+            r'To\s*:\s*([^\n]{10,100})',
+            r'Destination\s*:\s*([^\n]{10,100})'
         ]
         for pattern in consignee_patterns:
-            match = re.search(pattern, document_text, re.IGNORECASE)
+            match = re.search(pattern, document_text, re.IGNORECASE | re.MULTILINE)
             if match:
                 val = match.group(1).strip()
                 val = re.sub(r'^\d+\.\s*', '', val)
+                if "location" in val.lower():
+                    continue
                 shipment.consignee = val
                 extracted_fields.append('consignee')
                 logger.debug(f"Extracted consignee: {shipment.consignee[:50]}...")

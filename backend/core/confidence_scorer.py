@@ -58,8 +58,13 @@ class ConfidenceScorer:
     # =====================================================
 
     def _safe_cosine(self, a, b):
-        norm_a = max(np.linalg.norm(a), 1e-8)
-        norm_b = max(np.linalg.norm(b), 1e-8)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        
+        # Avoid divide by zero
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+            
         return float(np.dot(a, b) / (norm_a * norm_b))
 
     # =====================================================

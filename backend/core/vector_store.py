@@ -64,7 +64,8 @@ class VectorStore:
 
     def add_document(self, document_id, chunks, filename, file_type, file_path):
 
-        collection_name = f"doc_{document_id.replace('-', '_')}"
+        # Single collection strategy
+        collection_name = "documents"
 
         collection = self.client.get_or_create_collection(
             name=collection_name,
@@ -103,7 +104,7 @@ class VectorStore:
             "file_type": file_type,
             "file_path": file_path,
             "chunk_count": len(chunks),
-            "collection_name": collection_name
+            "collection_name": "documents"
         }
 
         self._save_metadata()
@@ -118,13 +119,15 @@ class VectorStore:
         if document_id not in self._document_metadata:
             return []
 
-        collection_name = self._document_metadata[document_id]["collection_name"]
+        collection_name = "documents"
 
         collection = self.client.get_collection(collection_name)
 
+        # Filter by document_id
         results = collection.query(
             query_embeddings=[query_embedding],
             n_results=min(top_k, 100),
+            where={"document_id": document_id},
             include=["documents", "metadatas", "distances"]
         )
 
@@ -135,6 +138,7 @@ class VectorStore:
             distance = results["distances"][0][i]
 
             # Correct cosine similarity conversion
+            # Distance 0 = Identical, 2 = Opposite
             similarity = 1 - (distance / 2)
             similarity = max(0.0, min(1.0, similarity))
 
@@ -192,10 +196,11 @@ class VectorStore:
         if document_id not in self._document_metadata:
             return False
 
-        collection_name = self._document_metadata[document_id]["collection_name"]
-
+        collection_name = "documents"
+        
         try:
-            self.client.delete_collection(collection_name)
+             collection = self.client.get_collection(collection_name)
+             collection.delete(where={"document_id": document_id})
         except Exception:
             pass
 

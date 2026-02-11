@@ -44,25 +44,29 @@ def get_embedding_model():
 
                 embeddings = []
 
-                for text in texts:
-                    try:
-                        # ✅ Correct Ollama embeddings API
-                        resp = self.client.embeddings(
-                            model=self.model_name,
-                            input=text
-                        )
+                try:
+                    # ✅ Optimized Batch Processing
+                    resp = self.client.embeddings(
+                        model=self.model_name,
+                        input=texts
+                    )
+                    
+                    # Check if response is single or list (Ollama API varies)
+                    if isinstance(resp, dict):
+                         # If single object returned but we sent list
+                         # This might happen in some Ollama versions, but standard is list for list
+                         if "embedding" in resp:
+                             embeddings = [resp["embedding"]]
+                         elif "embeddings" in resp:
+                             embeddings = resp["embeddings"]
+                         else:
+                             raise RuntimeError("Unknown Ollama response format")
+                    else:
+                         embeddings = resp
 
-                        embedding = resp.get("embedding")
-
-                        # ✅ Validate embedding
-                        if not embedding or not isinstance(embedding, list):
-                            raise RuntimeError("Invalid embedding response from Ollama")
-
-                        embeddings.append(embedding)
-
-                    except Exception as e:
-                        print(f"Error embedding with Ollama: {e}")
-                        raise RuntimeError(f"Ollama embedding failed: {e}")
+                except Exception as e:
+                    print(f"Error embedding with Ollama: {e}")
+                    raise RuntimeError(f"Ollama embedding failed: {e}")
 
                 # Return format handling
                 if is_single:
@@ -112,8 +116,8 @@ def get_embedding_model():
                     try:
                         result = genai.embed_content(
                             model=self.model_name,
-                            content=batch,
-                            task_type=task_type
+                            content=batch
+                            # task_type removed as it causes issues with some models/versions
                         )
 
                         batch_embeddings = result.get("embedding")

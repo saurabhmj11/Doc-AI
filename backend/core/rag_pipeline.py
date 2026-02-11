@@ -110,20 +110,25 @@ class RAGPipeline:
         context = self._build_context(top_chunks)
 
         # =====================================================
-        # FAST STRUCTURED EXTRACTION (NO LLM NEEDED)
+        # STRUCTURED EXTRACTION ROUTING (CRITICAL FIX)
         # =====================================================
 
-        fast_answer = self._structured_fast_path(question, context)
+        # Check for structured keywords
+        keywords = ["shipper", "consignee", "rate", "weight", "date", "load", "shipment"]
+        is_structured_query = any(k in question.lower() for k in keywords)
 
-        if fast_answer:
-            return {
-                "answer": fast_answer,
-                "confidence": 0.95,
-                "confidence_level": "high",
-                "sources": self._format_sources(top_chunks),
-                "guardrail_status": "allowed",
-                "guardrail_message": None
-            }
+        if is_structured_query:
+            # Try fast path first
+            fast_answer = self._structured_fast_path(question, context)
+            if fast_answer:
+                 return {
+                    "answer": fast_answer,
+                    "confidence": 0.95,
+                    "confidence_level": "high",
+                    "sources": self._format_sources(top_chunks),
+                    "guardrail_status": "allowed",
+                    "guardrail_message": None
+                }
 
         # =====================================================
         # LLM CALL
@@ -170,53 +175,95 @@ class RAGPipeline:
     # STRUCTURED FAST PATH (FIXED VERSION)
     # =====================================================
 
-    def _structured_fast_path(self, question, context):
+    # =====================================================
+    # STRUCTURED FAST PATH (FIXED VERSION)
+    # =====================================================
 
-        # Remove source labels (IMPORTANT FIX)
-        context = re.sub(r'\[Source.*?\]:', '', context)
-
-        q = question.lower()
-
-        patterns = {
-            "shipper": r'Shipper[:\s]*\n?([^\n]+(?:\n[^\n]+){0,3})',
-            "consignee": r'Consignee[:\s]*\n?([^\n]+(?:\n[^\n]+){0,3})',
-            "load id": r'(?:Load|Shipment|BOL)\s*(?:ID|#)?[:\s]*([A-Z0-9-]+)',
-            "rate": r'(?:Rate|Total|Amount|Charges)[:\s]*(\$?\s*[\d,]+\.?\d*)'
-        }
-
-        keyword_map = {
-            "sender": "shipper",
-            "from": "shipper",
-            "origin": "shipper",
-            "receiver": "consignee",
-            "destination": "consignee"
-        }
-
-        target = None
-
-        for key in patterns:
-            if key in q:
-                target = key
-                break
-
-        if not target:
-            for k, v in keyword_map.items():
-                if k in q:
-                    target = v
-                    break
-
-        if not target:
-            return None
-
-        match = re.search(patterns[target], context, re.S | re.I)
+    def _extract_pickup_block(self, context):
+        # Extract pickup block safely using structural anchors
+        match = re.search(
+            r'Pickup\s*\n(.+?)(?=\n\s*Delivery|\n\s*Drop|\n\s*Consignee|\Z)',
+            context,
+            re.S | re.I
+        )
 
         if not match:
             return None
 
-        val = match.group(1).strip()
-        val = re.sub(r'\s+', ' ', val)
+        block = match.group(1).strip()
+        lines = [l.strip() for l in block.split("\n") if l.strip()]
 
-        return f"**{target.title()}:**\n{val}\n\n✅ Instant answer"
+        # Filter out common noise
+        cleaned_lines = []
+        for line in lines:
+            if any(x in line for x in ["S.No", "Commodity", "Weight", "Quantity", "Shipping Date"]):
+                continue
+            cleaned_lines.append(line)
+
+        if cleaned_lines:
+            return "\n".join(cleaned_lines)
+
+        return None
+
+    def _extract_delivery_block(self, context):
+        # Extract delivery block safely
+        match = re.search(
+            r'(?:Delivery|Drop)\s*\n(.+?)(?=\n\s*Rate|\n\s*Total|\n\s*Notes|\Z)',
+            context,
+            re.S | re.I
+        )
+
+        if not match:
+            return None
+
+        block = match.group(1).strip()
+        lines = [l.strip() for l in block.split("\n") if l.strip()]
+
+        cleaned_lines = []
+        for line in lines:
+            if any(x in line for x in ["S.No", "Commodity", "Weight", "Quantity", "Delivery Date"]):
+                continue
+            cleaned_lines.append(line)
+
+        if cleaned_lines:
+            return "\n".join(cleaned_lines)
+            
+        return None
+
+    def _structured_fast_path(self, question, context):
+
+        # Remove source labels to prevent pollution
+        context = re.sub(r'\[Source.*?\]:', '', context)
+        q = question.lower()
+
+        # 1. SHIPPER / ORIGIN
+        if any(k in q for k in ["shipper", "sender", "from", "origin"]):
+            val = self._extract_pickup_block(context)
+            if val and len(val) < 200: # Length guard
+                return f"**Shipper:**\n{val}\n\n✅ Instant answer"
+
+        # 2. CONSIGNEE / DESTINATION
+        if any(k in q for k in ["consignee", "receiver", "to", "destination"]):
+            val = self._extract_delivery_block(context)
+            if val and len(val) < 200:
+                return f"**Consignee:**\n{val}\n\n✅ Instant answer"
+
+        # 3. GENERIC REGEX FALLBACK FOR OTHER FIELDS
+        patterns = {
+            "load id": r'(?:Load|Shipment|BOL)\s*(?:ID|#)?[:\s]*([A-Z0-9-]+)',
+            "rate": r'(?:Rate|Total|Amount|Charges)[:\s]*(\$?\s*[\d,]+\.?\d*)',
+            "weight": r'(?:Weight|Gross)\s*[:\s]*([\d,]+\s*(?:lbs|kg)?)',
+            "date": r'(?:Date|Pickup Date|Delivery Date)\s*[:\s]*(\d{2}[-/]\d{2}[-/]\d{4})'
+        }
+
+        for key, pattern in patterns.items():
+            if key in q:
+                match = re.search(pattern, context, re.I)
+                if match:
+                    val = match.group(1).strip()
+                    return f"**{key.title()}:**\n{val}\n\n✅ Instant answer"
+
+        return None
 
     # =====================================================
     # LLM GENERATION (SIMPLIFIED + SAFE)
@@ -257,14 +304,18 @@ Question: {question}
     # =====================================================
 
     def _extractive_fallback(self, question, context):
-
-        parts = context.split("[Source")
-
-        if len(parts) > 1:
-            text = parts[1].split("]:", 1)[1][:400]
-            return f"Based on document:\n{text}"
-
-        return context[:400]
+        
+        # Clean context to just text
+        clean_text = re.sub(r'\[Source.*?\]:', '', context).strip()
+        
+        # Split by double newline to get first paragraph/header block
+        first_block = clean_text.split("\n\n")[0]
+        
+        # Strict length limit to avoid dumping entire doc
+        if len(first_block) > 300:
+            first_block = first_block[:300] + "..."
+            
+        return f"Based on document:\n{first_block}"
 
     # =====================================================
     # SOURCE FORMATTER
