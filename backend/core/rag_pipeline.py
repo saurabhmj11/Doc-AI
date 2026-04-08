@@ -9,6 +9,7 @@ from core.vector_store import get_vector_store
 from core.confidence_scorer import get_confidence_scorer
 from core.guardrails import get_guardrails
 from core.reranker import get_reranker
+from core.privacy import get_privacy_layer
 from core.error_handling import (
     get_gemini_circuit_breaker,
     get_ollama_circuit_breaker,
@@ -30,6 +31,7 @@ class RAGPipeline:
         self.vector_store = get_vector_store()
         self.confidence_scorer = get_confidence_scorer()
         self.guardrails = get_guardrails()
+        self.privacy_layer = get_privacy_layer()
 
         self.llm_mode = settings.llm_mode
 
@@ -274,12 +276,16 @@ class RAGPipeline:
         if not self.llm:
             return self._extractive_fallback(question, context)
 
+        # Apply PII/PHI masking for production safety
+        safe_question = self.privacy_layer.mask_text(question)
+        safe_context = self.privacy_layer.mask_text(context)
+
         prompt = f"""
 Answer ONLY using this context:
 
-{context}
+{safe_context}
 
-Question: {question}
+Question: {safe_question}
 """
 
         try:

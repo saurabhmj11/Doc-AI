@@ -100,3 +100,29 @@ class ConfigUpdate(BaseModel):
     gemini_api_key: Optional[str] = None
     ollama_base_url: Optional[str] = None
     ollama_model: Optional[str] = None
+
+
+# ============ Debug & Monitoring ============
+
+class ModelInfo(BaseModel):
+    """Information about a single LLM model."""
+    name: str
+    methods: list[str] = []
+
+
+class ModelsResponse(BaseModel):
+    """Response containing a list of available models."""
+    models: list[ModelInfo]
+
+
+# ============ Authentication ============
+
+class Token(BaseModel):
+    """JWT Token response."""
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    """Token payload data."""
+    username: Optional[str] = None

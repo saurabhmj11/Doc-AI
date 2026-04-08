@@ -1,14 +1,20 @@
 """
-Document processing - handles PDFs, Word docs, and plain text
+Document Processor (Production Optimized)
 
-The chunking logic here tries to be smart about keeping paragraphs
-together rather than just splitting at arbitrary character counts.
-Took some trial and error to get this working well with logistics docs.
+Layout-aware chunking for logistics PDFs.
+
+Key improvements:
+
+- Block-level extraction (not flattened text)
+- Anchor-aware splitting (Shipper / Consignee / Pickup etc.)
+- Sentence-aware overlap
+- Page-isolated chunking
+- Stable chunk sizes
 """
 
-import os
 import uuid
-import fitz  # PyMuPDF
+import re
+import fitz
 from docx import Document
 import chardet
 from typing import Optional
@@ -20,9 +26,12 @@ from core.model_loader import get_embedding_model
 settings = get_settings()
 
 
+# ============================================================
+# DATA STRUCTURE
+# ============================================================
+
 @dataclass
 class DocumentChunk:
-    """A piece of a document with its metadata"""
     chunk_id: str
     document_id: str
     text: str
@@ -31,12 +40,15 @@ class DocumentChunk:
     embedding: Optional[list[float]] = None
 
 
+# ============================================================
+# PROCESSOR
+# ============================================================
+
 class DocumentProcessor:
 
     def __init__(self):
-
         self._embedding_model = None
-        self.chunk_size = settings.chunk_size
+        self.chunk_size = settings.chunk_size   # use char size
         self.chunk_overlap = settings.chunk_overlap
 
     @property
@@ -45,9 +57,10 @@ class DocumentProcessor:
             self._embedding_model = get_embedding_model()
         return self._embedding_model
 
-    # ==============================================
-    # PDF PARSER (LAYOUT AWARE)
-    # ==============================================
+
+# ============================================================
+# PDF PARSER (ELITE FIX)
+# ============================================================
 
     def _parse_pdf(self, file_path):
 
@@ -55,103 +68,131 @@ class DocumentProcessor:
 
         with fitz.open(file_path) as doc:
 
-            for i, page in enumerate(doc, 1):
+            for page_number, page in enumerate(doc, 1):
 
                 blocks = page.get_text("blocks")
 
+                # SORT by layout position (top-to-bottom, left-to-right)
                 blocks.sort(key=lambda b: (b[1], b[0]))
 
-                text = "\n".join(b[4] for b in blocks)
+                for block in blocks:
 
-                text = text.replace("Shipper Consignee", "Shipper:\n")
+                    text = block[4].strip()
 
-                if text.strip():
-                    pages.append((i, text))
+                    if not text:
+                        continue
+
+                    # Fix merged headers common in logistics PDFs
+                    text = re.sub(
+                        r"Shipper\s+Consignee",
+                        "Shipper:\nConsignee:",
+                        text,
+                        flags=re.I
+                    )
+
+                    pages.append((page_number, text))
 
         return pages
 
-    # ==============================================
+
+# ============================================================
+# SMART SPLITTING
+# ============================================================
+
+    def _split_sections(self, text):
+
+        anchors = [
+            r"\bShipper\b",
+            r"\bConsignee\b",
+            r"\bPickup\b",
+            r"\bDelivery\b",
+            r"\bWeight\b",
+            r"\bCommodity\b",
+            r"\bNotes\b",
+            r"\bCarrier\b",
+            r"\bBilling\b",
+            r"\bFreight\b",
+        ]
+
+        pattern = "(" + "|".join(anchors) + ")"
+
+        parts = re.split(pattern, text, flags=re.I)
+
+        if len(parts) > 3:
+            merged = []
+            for i in range(1, len(parts), 2):
+                merged.append(parts[i] + " " + parts[i + 1])
+            return merged
+
+        # fallback paragraph split
+        return re.split(r"\n{2,}", text)
+
+
+# ============================================================
+# CHUNK CREATION (FIXED)
+# ============================================================
 
     def _create_chunks(self, doc_id, pages):
 
         chunks = []
         idx = 0
 
-        current = ""   # FIXED: moved outside page loop
+        for page_num, block_text in pages:
 
-        for page_num, page_text in pages:
+            sections = self._split_sections(block_text)
 
-            paragraphs = self._split_paragraphs(page_text)
+            current = ""
 
-            for para in paragraphs:
+            for section in sections:
 
-                if len(current.split()) + len(para.split()) > self.chunk_size:
+                section = section.strip()
+
+                if not section:
+                    continue
+
+                # CHAR-based size (stable)
+                if len(current) + len(section) > self.chunk_size:
 
                     if current:
 
-                        chunks.append(DocumentChunk(
-                            chunk_id=f"{doc_id}_{idx}",
-                            document_id=doc_id,
-                            text=current.strip(),
-                            page=page_num,
-                            chunk_index=idx
-                        ))
+                        chunks.append(
+                            DocumentChunk(
+                                chunk_id=f"{doc_id}_{idx}",
+                                document_id=doc_id,
+                                text=current.strip(),
+                                page=page_num,
+                                chunk_index=idx
+                            )
+                        )
 
                         idx += 1
 
-                        # SENTENCE AWARE OVERLAP
-                        sentences = current.split('.')
-                        overlap = '.'.join(sentences[-2:])
-                        current = overlap + " " + para
+                        # sentence-aware overlap
+                        sentences = re.split(r'(?<=[.!?])\s+', current)
+                        overlap = " ".join(sentences[-2:])
+                        current = overlap + " " + section
 
                 else:
-                    current += "\n" + para if current else para
+                    current = current + "\n" + section if current else section
 
-        if current.strip():
-
-            chunks.append(DocumentChunk(
-                chunk_id=f"{doc_id}_{idx}",
-                document_id=doc_id,
-                text=current.strip(),
-                page=page_num,
-                chunk_index=idx
-            ))
+            if current.strip():
+                chunks.append(
+                    DocumentChunk(
+                        chunk_id=f"{doc_id}_{idx}",
+                        document_id=doc_id,
+                        text=current.strip(),
+                        page=page_num,
+                        chunk_index=idx
+                    )
+                )
+                idx += 1
 
         return chunks
 
-    # ==============================================
 
-    def _split_paragraphs(self, text):
-
-        paras = []
-
-        lines = text.split('\n')
-
-        current = []
-
-        for line in lines:
-
-            line = line.strip()
-
-            if not line:
-                if current:
-                    paras.append(" ".join(current))
-                    current = []
-                continue
-
-            # TABLE LINE DETECTION
-            if "|" in line:
-                paras.append(line)
-                continue
-
-            current.append(line)
-
-        if current:
-            paras.append(" ".join(current))
-
-        return paras
-
-    # ==============================================
+# ============================================================
+# EMBEDDINGS
+# ============================================================
 
     def _generate_embeddings(self, chunks):
 
@@ -166,68 +207,52 @@ class DocumentProcessor:
             raise RuntimeError("Embedding generation failed")
 
         for chunk, emb in zip(chunks, embeddings):
-
-            if emb is None:
-                raise RuntimeError("Invalid embedding returned")
-
             chunk.embedding = emb.tolist()
 
         return chunks
 
-    # ==============================================
+
+# ============================================================
+# DOCX / TXT
+# ============================================================
 
     def _parse_docx(self, file_path):
 
         doc = Document(file_path)
-        text_parts = []
+        parts = []
 
         for para in doc.paragraphs:
             if para.text.strip():
-                text_parts.append(para.text)
+                parts.append(para.text)
 
         for table in doc.tables:
             for row in table.rows:
                 cells = [c.text.strip() for c in row.cells if c.text.strip()]
-                row_text = " | ".join(cells)
-                if row_text:
-                    text_parts.append(row_text)
+                if cells:
+                    parts.append(" | ".join(cells))
 
-        full_text = "\n".join(text_parts)
+        full_text = "\n".join(parts)
+
         return [(1, full_text)] if full_text else []
-
-    # ==============================================
 
     def _parse_txt(self, file_path):
 
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             raw = f.read()
 
-        detected = chardet.detect(raw)
-        enc = detected.get('encoding', 'utf-8') or 'utf-8'
+        enc = chardet.detect(raw).get("encoding", "utf-8") or "utf-8"
 
-        text = raw.decode(enc, errors='replace')
+        text = raw.decode(enc, errors="replace")
+
         return [(1, text)] if text.strip() else []
 
-    # ==============================================
 
-    def get_full_text(self, file_path, file_type):
-
-        if file_type == "pdf":
-            pages = self._parse_pdf(file_path)
-        elif file_type == "docx":
-            pages = self._parse_docx(file_path)
-        elif file_type == "txt":
-            pages = self._parse_txt(file_path)
-        else:
-            raise ValueError(f"Unsupported type: {file_type}")
-
-        return "\n\n".join(text for _, text in pages)
-
-    # ==============================================
+# ============================================================
+# MAIN ENTRY
+# ============================================================
 
     def process_file(self, file_path, file_type):
 
-        # 1. Parse
         if file_type == "pdf":
             pages = self._parse_pdf(file_path)
         elif file_type == "docx":
@@ -237,11 +262,10 @@ class DocumentProcessor:
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
 
-        # 2. Chunk
         doc_id = str(uuid.uuid4())
+
         chunks = self._create_chunks(doc_id, pages)
 
-        # 3. Embed
         chunks = self._generate_embeddings(chunks)
 
         return doc_id, chunks

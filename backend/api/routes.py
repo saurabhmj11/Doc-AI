@@ -7,8 +7,9 @@ FastAPI endpoints for document upload, Q&A, and structured extraction.
 import os
 import shutil
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from typing import Optional
+from core.auth import get_current_active_user
 
 from config import get_settings
 from api.schemas import (
@@ -74,7 +75,10 @@ def get_structured_extractor():
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_active_user)
+):
     """
     Upload and process a logistics document.
     
@@ -140,7 +144,10 @@ async def upload_document(file: UploadFile = File(...)):
 
 
 @router.post("/ask", response_model=AskResponse)
-async def ask_question(request: AskRequest):
+async def ask_question(
+    request: AskRequest,
+    current_user: dict = Depends(get_current_active_user)
+):
     """
     Ask a question about one or more uploaded documents.
     
@@ -197,7 +204,10 @@ async def ask_question(request: AskRequest):
 
 
 @router.post("/extract", response_model=ExtractResponse)
-async def extract_structured_data(request: ExtractRequest):
+async def extract_structured_data(
+    request: ExtractRequest,
+    current_user: dict = Depends(get_current_active_user)
+):
     """
     Extract structured shipment data from an uploaded document.
     
@@ -253,7 +263,10 @@ async def extract_structured_data(request: ExtractRequest):
 
 
 @router.get("/documents/{document_id}")
-async def get_document_info(document_id: str):
+async def get_document_info(
+    document_id: str,
+    current_user: dict = Depends(get_current_active_user)
+):
     """Get information about an uploaded document."""
     vector_store = get_vector_store()
     
@@ -270,7 +283,10 @@ async def get_document_info(document_id: str):
 
 
 @router.delete("/documents/{document_id}")
-async def delete_document(document_id: str):
+async def delete_document(
+    document_id: str,
+    current_user: dict = Depends(get_current_active_user)
+):
     """Delete an uploaded document."""
     vector_store = get_vector_store()
     
@@ -288,7 +304,6 @@ async def delete_document(document_id: str):
     if file_path.exists():
         file_path.unlink()
     
-    return {"status": "deleted", "document_id": document_id}
     return {"status": "deleted", "document_id": document_id}
 
 
@@ -331,10 +346,13 @@ async def update_config(config_update: ConfigUpdate):
     if config_update.ollama_model:
         env_content["OLLAMA_MODEL"] = config_update.ollama_model
         
-    # Write back to .env
-    with open(env_path, "w") as f:
-        for key, val in env_content.items():
-            f.write(f"{key}={val}\n")
+    # Write back to .env if not in immutable mode
+    if os.getenv("IMMUTABLE_CONFIG", "false").lower() != "true":
+        with open(env_path, "w") as f:
+            for key, val in env_content.items():
+                f.write(f"{key}={val}\n")
+    else:
+        logger.warning("Attempted to update config in IMMUTABLE_CONFIG mode. Changes will not persist.")
             
     # 2. Force reload settings
     # We need to clear lru_cache of get_settings

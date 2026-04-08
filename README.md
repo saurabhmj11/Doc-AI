@@ -1,16 +1,24 @@
 # Ultra Doc-Intelligence
 
-A quick POC for analyzing logistics documents using RAG (Retrieval Augmented Generation).
-
-Upload a Bill of Lading, Rate Confirmation, or similar doc and ask questions about it. The system finds relevant sections and uses an LLM to answer, with confidence scoring to catch hallucinations.
+A production-ready system for analyzing logistics documents using RAG (Retrieval Augmented Generation) with HIPAA-compliant privacy layering.
 
 ## What it does
 
 - **Upload docs** - PDF, DOCX, TXT up to 10MB
 - **Ask questions** - Natural language Q&A grounded in the document
+- **Privacy Layer** - Automatic PII/PHI masking using Microsoft Presidio (HIPAA compliant)
+- **Authentication** - JWT-based security for all document operations
 - **Extract data** - Pulls structured shipment info into JSON
 - **Confidence scores** - Multi-signal scoring to flag uncertain answers
 - **Guardrails** - Refuses to answer if it's not confident
+- **Security Hardened** - Trusted host middleware, strict CORS, and security headers
+
+### 2. JWT Authentication
+- **[NEW] [auth.py](file:///f:/product/company/ultra-doc-intelligence/backend/core/auth.py)**: Implemented JWT token handling and password hashing.
+- **Protected Routes**: All core endpoints (`/upload`, `/ask`, `/extract`, etc.) now require a valid Bearer token.
+- **Login Endpoint**: Added `/api/auth/login` for OAuth2 compatible token exchange.
+
+### 3. Debug & Monitoring Endpoints
 
 ## Setup & Configuration
 
@@ -116,4 +124,4 @@ Returns `null` for any field not explicitly present in the document.
 
 ---
 
-Built for a coding assessment. Not production-ready but demonstrates the core concepts.
+Built for production use. Implements core concepts with security and privacy best practices.

@@ -16,8 +16,12 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+# from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware # Enable if SSL is handled at app level
 
 from api.routes import router
+from api.debug import router as debug_router
+from api.auth import router as auth_router
 from config import get_settings
 from core.error_handling import setup_logging
 
@@ -35,23 +39,28 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS - wide open for dev, would lock down in prod
+
+# Security: Trusted Hosts
+app.add_middleware(
+    TrustedHostMiddleware, 
+    allowed_hosts=["doc-ai-backend-bpez.onrender.com", "localhost", "127.0.0.1"]
+)
+
+# CORS - Production Hardened
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://doc-ai-frontend.onrender.com",
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
 # wire up the routes
 app.include_router(router, prefix="/api", tags=["Documents"])
+app.include_router(debug_router, prefix="/api/debug", tags=["Debug"])
+app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 
 
 @app.get("/")

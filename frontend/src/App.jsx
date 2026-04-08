@@ -1,13 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import SettingsModal from './components/SettingsModal'
-
-// Use hardcoded production URL for stability on Render, fallback to /api for dev
-const API_BASE = import.meta.env.PROD
-    ? 'https://doc-ai-backend-bpez.onrender.com/api'
-    : '/api'
+import Login from './components/Login'
+import api from './services/api'
 
 function App() {
     // State management
+    const [user, setUser] = useState(null)
+    const [authChecked, setAuthChecked] = useState(false)
     const [files, setFiles] = useState([])
     const [processedDocs, setProcessedDocs] = useState([])
     const [uploading, setUploading] = useState(false)
@@ -23,6 +22,23 @@ function App() {
 
     const fileInputRef = useRef(null)
     const messagesEndRef = useRef(null)
+
+    // Check auth on mount
+    useEffect(() => {
+        const checkAuth = async () => {
+            if (api.getToken()) {
+                try {
+                    const userData = await api.getCurrentUser()
+                    setUser(userData)
+                } catch (err) {
+                    console.error('Auth verification failed:', err)
+                    api.logout()
+                }
+            }
+            setAuthChecked(true)
+        }
+        checkAuth()
+    }, [])
 
     // Auto scroll to bottom of messages
     useEffect(() => {
@@ -65,7 +81,7 @@ function App() {
     // Delete processed document
     const handleDeleteDocument = async (documentId) => {
         try {
-            await fetch(`${API_BASE}/documents/${documentId}`, {
+            await api.request(`/documents/${documentId}`, {
                 method: 'DELETE'
             })
             setProcessedDocs(prev => prev.filter(d => d.document_id !== documentId))
@@ -99,22 +115,15 @@ function App() {
             await new Promise(r => setTimeout(r, 600))
             setPipelineStage('chunking')
 
-            // Parallel Uploads using Promise.all
-            // This demonstrates parallel processing capability
+            // Parallel Uploads using api.request
             const uploadPromises = files.map(async (file) => {
                 const formData = new FormData()
                 formData.append('file', file)
 
-                const response = await fetch(`${API_BASE}/upload`, {
+                return api.request('/upload', {
                     method: 'POST',
                     body: formData,
                 })
-
-                if (!response.ok) {
-                    const error = await response.json()
-                    throw new Error(error.detail || `Upload failed for ${file.name}`)
-                }
-                return response.json()
             })
 
             // Wait for all to complete concurrently
@@ -175,21 +184,14 @@ function App() {
             // Collect all document IDs
             const docIds = processedDocs.map(d => d.document_id)
 
-            const response = await fetch(`${API_BASE}/ask`, {
+            const data = await api.request('/ask', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     document_ids: docIds,
                     question: currentQuestion
                 })
             })
 
-            if (!response.ok) {
-                const error = await response.json()
-                throw new Error(error.detail || 'Failed to get answer')
-            }
-
-            const data = await response.json()
             setPipelineStage('complete')
             await new Promise(r => setTimeout(r, 1000))
             setPipelineStage(null)
@@ -240,18 +242,11 @@ function App() {
             await new Promise(r => setTimeout(r, 700))
             setPipelineStage('validating')
 
-            const response = await fetch(`${API_BASE}/extract`, {
+            const data = await api.request('/extract', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ document_id: targetDoc.document_id })
             })
 
-            if (!response.ok) {
-                const error = await response.json()
-                throw new Error(error.detail || 'Extraction failed')
-            }
-
-            const data = await response.json()
             setPipelineStage('complete')
             await new Promise(r => setTimeout(r, 1000))
             setPipelineStage(null)
@@ -262,6 +257,13 @@ function App() {
         } finally {
             setExtracting(false)
         }
+    }
+
+    // Log Out
+    const handleLogout = () => {
+        api.logout()
+        setUser(null)
+        window.location.reload()
     }
 
     // Format file size
@@ -278,6 +280,9 @@ function App() {
         if (ext === 'docx' || ext === 'doc') return '📝'
         return '📃'
     }
+
+    if (!authChecked) return null
+    if (!user) return <Login onLoginSuccess={setUser} />
 
     return (
         <div className="app">
@@ -310,6 +315,28 @@ function App() {
                     }}
                 >
                     ⚙️ Settings
+                </button>
+                <button
+                    className="btn-logout"
+                    onClick={handleLogout}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        right: '110px',
+                        background: 'transparent',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        color: '#fca5a5',
+                        padding: '8px 16px',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '0.9rem',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    🔒 Logout
                 </button>
                 <h1>🔮 <span className="gradient">Ultra Doc-Intelligence</span></h1>
                 <p>AI-powered logistics document assistant with RAG, guardrails & structured extraction</p>
