@@ -5,6 +5,7 @@ FastAPI endpoints for document upload, Q&A, and structured extraction.
 """
 
 import os
+import logging
 import shutil
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
@@ -26,6 +27,7 @@ from api.schemas import (
 
 settings = get_settings()
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Upload directory
 UPLOAD_DIR = Path("./uploads")
@@ -308,10 +310,8 @@ async def delete_document(
 
 
 @router.get("/config", response_model=ConfigResponse)
-async def get_config():
-    """Get current configuration."""
-    # Force reload settings to ensure we get latest
-    from config import get_settings
+async def get_config(current_user: dict = Depends(get_current_active_user)):
+    """Get current configuration. Requires authentication."""
     current_settings = get_settings()
     
     return ConfigResponse(
@@ -323,8 +323,8 @@ async def get_config():
 
 
 @router.post("/config", response_model=ConfigResponse)
-async def update_config(config_update: ConfigUpdate):
-    """Update configuration and .env file."""
+async def update_config(config_update: ConfigUpdate, current_user: dict = Depends(get_current_active_user)):
+    """Update configuration and .env file. Requires authentication."""
     # 1. Update .env file
     env_path = Path(__file__).parent.parent / ".env"
     

@@ -143,7 +143,7 @@ function App() {
 
             setMessages([{
                 type: 'assistant',
-                content: `Success! Processed ${results.length} new document(s). Total ${results.reduce((acc, d) => acc + d.chunks_created, 0)} chunks index. You can now ask questions across ALL ${processedDocs.length + results.length} documents.`,
+                content: `Success! Processed ${results.length} new document(s). Total ${results.reduce((acc, d) => acc + d.chunks_created, 0)} chunks indexed. You can now ask questions across ALL ${processedDocs.length + results.length} documents.`,
                 timestamp: new Date()
             }])
         } catch (error) {

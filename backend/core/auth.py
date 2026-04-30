@@ -7,7 +7,7 @@ Handles password hashing, token creation, and dependency-based auth.
 
 import os
 from datetime import datetime, timedelta
-from typing import Optional, Union, Any
+from typing import Optional
 import jwt
 from jwt.exceptions import PyJWTError as JWTError
 import bcrypt
