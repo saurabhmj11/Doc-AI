@@ -2,14 +2,15 @@
 Authentication Module
 
 JWT-based security for FastAPI endpoints.
-Handles passsword hashing, token creation, and dependency-based auth.
+Handles password hashing, token creation, and dependency-based auth.
 """
 
 import os
 from datetime import datetime, timedelta
 from typing import Optional, Union, Any
-from jose import jwt, JWTError
-from passlib.context import CryptContext
+import jwt
+from jwt.exceptions import PyJWTError as JWTError
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
@@ -22,26 +23,34 @@ SECRET_KEY = os.getenv("SECRET_KEY", "7b99c89d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6g7h8i
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
-
 # Simple user "database" for POC
 # In a real app, this would be in a SQL database
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+
+def get_password_hash(password: str) -> str:
+    """Hash a plain-text password using bcrypt."""
+    salt = bcrypt.gensalt(rounds=10)  # rounds=10 is the bcrypt default, fast enough for dev
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain-text password against its bcrypt hash."""
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+# Pre-computed bcrypt hash for 'admin' — avoids slow hashing at module load time.
+# To regenerate: python -c "import bcrypt; print(bcrypt.hashpw(b'admin', bcrypt.gensalt(10)).decode())"
+_ADMIN_HASHED_PASSWORD = "$2b$10$4zW4DonbMVW4WI2EpjvRyuKj1KIIw4CAt98CASAEfQe9dY.1rsc8u"
+
 FAKE_USERS_DB = {
     "admin": {
         "username": "admin",
         "full_name": "System Administrator",
         "email": "admin@example.com",
-        "hashed_password": pwd_context.hash("admin"),
+        "hashed_password": _ADMIN_HASHED_PASSWORD,
         "disabled": False,
     }
 }
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
