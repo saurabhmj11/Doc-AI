@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
+import api from '../services/api'
 
-export default function SettingsModal({ onClose, apiBase }) {
+export default function SettingsModal({ onClose }) {
     const [config, setConfig] = useState({
         llm_mode: 'online',
         gemini_api_key_configured: false,
@@ -15,8 +16,7 @@ export default function SettingsModal({ onClose, apiBase }) {
 
     // Load current config on mount
     useEffect(() => {
-        fetch(`${apiBase}/config`)
-            .then(res => res.json())
+        api.request('/config')
             .then(data => {
                 setConfig(data)
                 setLoading(false)
@@ -26,7 +26,7 @@ export default function SettingsModal({ onClose, apiBase }) {
                 setError("Failed to load configuration")
                 setLoading(false)
             })
-    }, [apiBase])
+    }, [])
 
     const handleSave = async () => {
         setSaving(true)
@@ -45,18 +45,10 @@ export default function SettingsModal({ onClose, apiBase }) {
                 payload.gemini_api_key = apiKey.trim()
             }
 
-            const res = await fetch(`${apiBase}/config`, {
+            const updated = await api.request('/config', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             })
-
-            if (!res.ok) {
-                const err = await res.json()
-                throw new Error(err.detail || "Failed to save settings")
-            }
-
-            const updated = await res.json()
             setConfig(updated)
             setApiKey('') // Clear input after save
             setSuccess(true)

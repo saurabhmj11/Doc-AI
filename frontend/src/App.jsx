@@ -289,7 +289,6 @@ function App() {
             {showSettings && (
                 <SettingsModal
                     onClose={() => setShowSettings(false)}
-                    apiBase={API_BASE}
                 />
             )}
 
