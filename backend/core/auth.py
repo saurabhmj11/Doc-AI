@@ -40,7 +40,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 # Pre-computed bcrypt hash for 'admin' — avoids slow hashing at module load time.
 # To regenerate: python -c "import bcrypt; print(bcrypt.hashpw(b'admin', bcrypt.gensalt(10)).decode())"
-_ADMIN_HASHED_PASSWORD = "$2b$10$4zW4DonbMVW4WI2EpjvRyuKj1KIIw4CAt98CASAEfQe9dY.1rsc8u"
+_ADMIN_HASHED_PASSWORD = "$2b$10$D1ZdDD4QTOc7CEWsQp4W/e9BhRB4nlXTb90lPaCwzL8SwaEgnJpv."
 
 FAKE_USERS_DB = {
     "admin": {
